@@ -1,16 +1,50 @@
+# --- Secrets & environment (only the template is committed) ---
 .env
-backend/.env
-backend/.venv/
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.crt
+
+# --- Python ---
 __pycache__/
+*.py[cod]
+.venv/
+venv/
 .pytest_cache/
-devdb/
-*.log
-frontend/node_modules/
-frontend/.next/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# --- Node / Next.js ---
+node_modules/
+.next/
+out/
+build/
+dist/
+coverage/
+*.tsbuildinfo
+next-env.d.ts
+.vercel/
+npm-debug.log*
+
+# --- Playwright artifacts ---
 frontend/test-results/
 frontend/e2e/report/
+frontend/playwright/.cache/
 frontend/e2e/screenshots/bad.csv
+
+# --- Local databases & data stores ---
+devdb/
+*.sqlite
+*.sqlite3
+*.db
+pgdata/
+
+# --- Logs, OS, editors ---
+*.log
 .DS_Store
-*.pyc
-frontend/tsconfig.tsbuildinfo
-frontend/next-env.d.ts
+.idea/
+.vscode/
