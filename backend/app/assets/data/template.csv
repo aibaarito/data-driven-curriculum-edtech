@@ -1,0 +1,3 @@
+school,student_id,grade,class,subject,topic_id,topic_name,assessment_id,assessment_type,assessment_date,comparison_group,item_id,score,max_score,textbook_id,textbook_name,teaching_hours,topic_order,topic_min_hours,topic_max_hours,topic_priority,topic_prerequisites
+my-school,STU-0001,7,7А,Математика,T7-01,Линейные уравнения,A7-PRE,pre,2025-09-12,G7-2025-26,T7-01-Q1,1,2,TB-A7,Учебник А,12,1,8,16,3,
+my-school,STU-0001,7,7А,Математика,T7-01,Линейные уравнения,A7-POST,post,2026-05-15,G7-2025-26,T7-01-Q1,2,2,TB-A7,Учебник А,12,1,8,16,3,

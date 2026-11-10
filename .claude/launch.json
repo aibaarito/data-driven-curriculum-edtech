@@ -1,0 +1,10 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "ddc-web",
+      "url": "http://127.0.0.1:3010",
+      "port": 3010
+    }
+  ]
+}

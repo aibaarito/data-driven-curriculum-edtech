@@ -1,0 +1,16 @@
+.env
+backend/.env
+backend/.venv/
+__pycache__/
+.pytest_cache/
+devdb/
+*.log
+frontend/node_modules/
+frontend/.next/
+frontend/test-results/
+frontend/e2e/report/
+frontend/e2e/screenshots/bad.csv
+.DS_Store
+*.pyc
+frontend/tsconfig.tsbuildinfo
+frontend/next-env.d.ts

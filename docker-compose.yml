@@ -1,0 +1,49 @@
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: ddc
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ddc_dev_pw}
+      POSTGRES_DB: ddc
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ddc -d ddc"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  backend:
+    build: ./backend
+    environment:
+      DATABASE_URL: postgresql+psycopg://ddc:${POSTGRES_PASSWORD:-ddc_dev_pw}@db:5432/ddc
+      CORS_ORIGINS: http://localhost:3010
+      LLM_PROVIDER: ${LLM_PROVIDER:-anthropic}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-claude-sonnet-5-5}
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8010:8010"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8010/api/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        API_URL: http://backend:8010
+    environment:
+      API_URL: http://backend:8010
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "3010:3010"
+
+volumes:
+  pgdata:

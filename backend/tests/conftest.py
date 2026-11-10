@@ -1,0 +1,53 @@
+import os
+from pathlib import Path
+
+import pytest
+
+# Integration tests run against a dedicated test database, never the dev database.
+_TEST_URL = os.environ.get("TEST_DATABASE_URL", "postgresql+psycopg://ddc:ddc_dev_pw@127.0.0.1:55433/ddc_test")
+if not _TEST_URL.rsplit("/", 1)[-1].endswith("_test"):
+    raise RuntimeError("Refusing to run tests: TEST_DATABASE_URL must point to a database whose name ends in _test")
+os.environ["DATABASE_URL"] = _TEST_URL  # tests wipe this database; never the dev one
+os.environ["LLM_API_KEY"] = ""  # tests never call a real LLM
+
+ROOT = Path(__file__).resolve().parent.parent
+DEMO_CSV = ROOT / "app" / "assets" / "data" / "synthetic_assessments.csv"
+
+HEADER = ("school,student_id,grade,class,subject,topic_id,topic_name,assessment_id,assessment_type,"
+          "assessment_date,comparison_group,item_id,score,max_score,textbook_id,teaching_hours")
+
+
+def make_csv(rows: list[str], header: str = HEADER) -> bytes:
+    return ("\n".join([header, *rows]) + "\n").encode("utf-8")
+
+
+@pytest.fixture(scope="session")
+def migrated_db():
+    from alembic import command
+    from alembic.config import Config
+    from sqlalchemy import text
+
+    from app.db import get_engine
+
+    cfg = Config(str(ROOT / "alembic.ini"))
+    cfg.set_main_option("script_location", str(ROOT / "alembic"))
+    engine = get_engine()
+    with engine.begin() as conn:
+        conn.execute(text("DROP SCHEMA public CASCADE; CREATE SCHEMA public;"))
+    command.upgrade(cfg, "head")  # proves the system starts from an empty database
+    return engine
+
+
+@pytest.fixture()
+def client(migrated_db):
+    from fastapi.testclient import TestClient
+    from sqlalchemy import text
+
+    from app.main import app
+
+    with migrated_db.begin() as conn:
+        tables = conn.execute(text(
+            "SELECT tablename FROM pg_tables WHERE schemaname='public' AND tablename <> 'alembic_version'")).scalars().all()
+        conn.execute(text("TRUNCATE " + ", ".join(tables) + " RESTART IDENTITY CASCADE"))
+    with TestClient(app) as c:
+        yield c

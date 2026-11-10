@@ -1,0 +1,16 @@
+alembic==1.20.1
+fastapi==0.162.2
+httpx==0.28.1
+numpy==2.5.4
+openpyxl==3.1.5
+pandas==3.1.1
+psycopg==3.3.8
+psycopg-binary==3.3.8
+pydantic==2.14.3
+pydantic-settings==2.16.2
+pytest==9.2.0
+python-multipart==0.0.33
+reportlab==5.1.0
+scipy==1.18.1
+SQLAlchemy==2.1.8
+uvicorn==0.54.0
