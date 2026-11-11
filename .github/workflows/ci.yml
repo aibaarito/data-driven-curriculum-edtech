@@ -1,0 +1,150 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend tests (pytest + PostgreSQL)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: ddc
+          POSTGRES_PASSWORD: ddc_ci
+          # tests/db_safety.py refuses any database whose name does not end in _test
+          POSTGRES_DB: ddc_ci_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U ddc -d ddc_ci_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements.txt
+            backend/requirements-dev.txt
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+      - name: pytest (destroys and recreates the disposable CI database schema)
+        env:
+          TEST_DATABASE_URL: postgresql+psycopg://ddc:ddc_ci@127.0.0.1:5432/ddc_ci_test
+        run: python -m pytest -q -p no:cacheprovider
+
+  frontend:
+    name: Frontend checks (typecheck, ESLint, Vitest, build)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npx eslint src e2e playwright.config.ts
+      - run: npm test
+      - run: npm run build
+
+  e2e:
+    name: Browser journeys (Playwright, isolated CI stack)
+    needs: [backend, frontend]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: ddc
+          POSTGRES_PASSWORD: ddc_ci
+          POSTGRES_DB: ddc_browser_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U ddc -d ddc_browser_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql+psycopg://ddc:ddc_ci@127.0.0.1:5432/ddc_browser_test
+      ENABLE_DATA_RESET: "true"
+      LLM_API_KEY: ""  # deterministic explainer: the journeys also prove the product works without an LLM
+      API_URL: http://127.0.0.1:8011
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements.txt
+            backend/requirements-dev.txt
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Generate per-run tokens (masked)
+        run: |
+          API_TOKEN=$(python -c "import secrets; print(secrets.token_urlsafe(24))")
+          ADMIN_TOKEN=$(python -c "import secrets; print(secrets.token_urlsafe(24))")
+          echo "::add-mask::$API_TOKEN"
+          echo "::add-mask::$ADMIN_TOKEN"
+          echo "API_TOKEN=$API_TOKEN" >> "$GITHUB_ENV"
+          echo "ADMIN_TOKEN=$ADMIN_TOKEN" >> "$GITHUB_ENV"
+      - name: Start backend on :8011
+        working-directory: backend
+        run: |
+          pip install -r requirements.txt
+          alembic upgrade head
+          nohup uvicorn app.main:app --host 127.0.0.1 --port 8011 > "$RUNNER_TEMP/backend.log" 2>&1 &
+          for i in $(seq 1 30); do curl -fsS http://127.0.0.1:8011/api/health && exit 0; sleep 1; done
+          cat "$RUNNER_TEMP/backend.log"; exit 1
+      - name: Build and start frontend on :3011
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+          nohup npx next start -p 3011 -H 127.0.0.1 > "$RUNNER_TEMP/frontend.log" 2>&1 &
+          for i in $(seq 1 30); do curl -fsS http://127.0.0.1:3011/api/meta > /dev/null && exit 0; sleep 1; done
+          cat "$RUNNER_TEMP/frontend.log"; exit 1
+      - name: Install Chromium
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+      - name: Playwright
+        working-directory: frontend
+        env:
+          E2E_BASE_URL: http://127.0.0.1:3011
+          E2E_ALLOW_RESET: isolated-database
+          E2E_ADMIN_TOKEN: ${{ env.ADMIN_TOKEN }}
+          E2E_ARTIFACT_DIR: ${{ runner.temp }}/e2e-artifacts
+        run: npx playwright test --trace off
+      - name: Upload artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-artifacts
+          path: |
+            frontend/e2e/report
+            frontend/test-results
+            ${{ runner.temp }}/e2e-artifacts
+            ${{ runner.temp }}/*.log
+          retention-days: 7
