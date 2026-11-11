@@ -4,7 +4,7 @@ import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 
 const DEMO = path.resolve(__dirname, "../../backend/app/assets/data/synthetic_assessments.csv");
-const SHOTS = path.resolve(__dirname, "screenshots");
+const SHOTS = path.resolve(process.env.E2E_ARTIFACT_DIR ?? path.join(__dirname, "screenshots"));
 fs.mkdirSync(SHOTS, { recursive: true });
 
 function watchErrors(page: Page): string[] {
@@ -180,4 +180,115 @@ test("mobile layout has working navigation", async ({ browser }) => {
   await expect(page.getByTestId("topics-table")).toBeVisible();
   await page.screenshot({ path: path.join(SHOTS, "10-mobile.png"), fullPage: false });
   await ctx.close();
+});
+
+test("settings validate and persist, and the reset dialog can be cancelled", async ({ page }) => {
+  await page.goto("/settings");
+  const form = page.getByTestId("settings-form");
+  await expect(form).toBeVisible();
+  await page.locator("#min_classes_textbook").fill("1");
+  await form.getByRole("button", { name: "Сохранить" }).click();
+  await expect(page.locator("#min_classes_textbook")).toHaveAttribute("aria-invalid", "true");
+  await page.locator("#min_classes_textbook").fill("3");
+  await page.locator("#target_mastery").fill("78");
+  const saved = page.waitForResponse(r => r.url().endsWith("/api/settings") && r.request().method() === "PUT");
+  await form.getByRole("button", { name: "Сохранить" }).click();
+  expect((await saved).ok()).toBeTruthy();
+  await page.reload();
+  await expect(page.locator("#target_mastery")).toHaveValue("78");
+  // Restore the standard demo threshold for subsequent tests.
+  await page.locator("#target_mastery").fill("75");
+  const restored = page.waitForResponse(r => r.url().endsWith("/api/settings") && r.request().method() === "PUT");
+  await page.getByTestId("settings-form").getByRole("button", { name: "Сохранить" }).click();
+  expect((await restored).ok()).toBeTruthy();
+  await page.locator("#difficult_threshold").fill("45");
+  const thresholdSaved = page.waitForResponse(r => r.url().endsWith("/api/settings") && r.request().method() === "PUT");
+  await page.getByTestId("settings-form").getByRole("button", { name: "Сохранить" }).click();
+  expect((await thresholdSaved).ok()).toBeTruthy();
+  await page.goto("/topics?grade=7");
+  await expect(page.getByTestId("topics-table").getByRole("row", { name: /Разложение на множители/ })).toContainText("Внимание");
+  await page.goto("/settings");
+  await page.locator("#difficult_threshold").fill("50");
+  const thresholdRestored = page.waitForResponse(r => r.url().endsWith("/api/settings") && r.request().method() === "PUT");
+  await page.getByTestId("settings-form").getByRole("button", { name: "Сохранить" }).click();
+  expect((await thresholdRestored).ok()).toBeTruthy();
+  await page.getByTestId("reset-button").click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.getByRole("button", { name: "Удалить навсегда" })).toBeDisabled();
+  await dialog.getByRole("button", { name: "Отмена" }).click();
+  expect((await (await page.request.get("/api/meta")).json()).has_data).toBe(true);
+});
+
+test("filters survive reload, empty scopes are honest, and errors can be retried", async ({ page }) => {
+  await page.goto("/topics?grade=8");
+  await expect(page.getByTestId("topics-table")).toBeVisible();
+  await expect(page.getByTestId("topics-table")).not.toContainText("Формулы сокращённого умножения");
+  await page.reload();
+  await expect(page).toHaveURL(/grade=8/);
+  await expect(page.getByTestId("topics-table")).toBeVisible();
+  await page.goto("/topics?grade=12");
+  await expect(page.getByTestId("empty-state")).toBeVisible();
+  let fail = true;
+  await page.route("**/api/analytics/topics*", async route => {
+    if (fail) await route.fulfill({ status: 503, contentType: "application/json", body: '{"detail":"Проверка отказа сервера"}' });
+    else await route.continue();
+  });
+  await page.goto("/topics?grade=7");
+  const errorAlert = page.getByRole("alert").filter({ hasText: "Проверка отказа сервера" });
+  await expect(errorAlert).toBeVisible();
+  fail = false;
+  await page.getByRole("button", { name: /Повторить/ }).click();
+  await expect(page.getByTestId("topics-table")).toBeVisible();
+  await expect(errorAlert).toHaveCount(0);
+});
+
+test("manual hours violations and rejection survive reload", async ({ page }) => {
+  await page.goto("/optimizer?grade=7");
+  await page.getByTestId("run-optimizer").click();
+  await expect(page.getByTestId("run-status")).toHaveText("Предложена");
+  await page.getByLabel("Ручной вариант: Линейная функция", { exact: true }).fill("-1");
+  await page.getByTestId("evaluate-custom").click();
+  await expect(page.getByText("Некорректное значение часов: «Линейная функция»")).toBeVisible();
+  await page.getByLabel("Ручной вариант: Линейная функция", { exact: true }).fill("1");
+  await page.getByTestId("evaluate-custom").click();
+  await expect(page.getByText(/Ручной вариант нарушает ограничения/)).toBeVisible();
+  await page.getByRole("button", { name: "Отклонить", exact: true }).click();
+  await expect(page.getByTestId("run-status")).toHaveText("Отклонена");
+  await expect(page.getByTestId("accept-run")).toBeDisabled();
+  await page.reload();
+  await expect(page.getByText(/Отклонена/).first()).toBeVisible();
+});
+
+test("saved reports reopen and delete through the confirmation dialog", async ({ page }) => {
+  await page.goto("/reports?grade=8");
+  await page.getByTestId("create-report").click();
+  await expect(page.getByTestId("report-view")).toBeVisible();
+  await expect(page.getByTestId("report-view")).not.toContainText("Формулы сокращённого умножения");
+  await page.reload();
+  const first = page.getByTestId("report-list").locator("li").first();
+  await first.getByRole("button", { name: "Открыть", exact: true }).click();
+  await expect(page.getByTestId("report-view")).toBeVisible();
+  const before = await page.getByTestId("report-list").locator("li").count();
+  await first.getByRole("button", { name: "Удалить отчёт" }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Удалить", exact: true }).click();
+  await expect(page.getByTestId("report-list").locator("li")).toHaveCount(before - 1);
+});
+
+test("loading state remains visible until analysis data arrives", async ({ page }) => {
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  await page.route("**/api/analytics/topics*", async route => {
+    await gate;
+    await route.continue();
+  });
+  try {
+    await page.goto("/topics?grade=7");
+    await expect(page.getByRole("status", { name: "Загрузка…" })).toBeVisible();
+    await expect(page.getByTestId("topics-table")).toHaveCount(0);
+    await shot(page, "11-loading-topics");
+  } finally {
+    release();
+  }
+  await expect(page.getByTestId("topics-table")).toBeVisible();
+  await expect(page.getByRole("status", { name: "Загрузка…" })).toHaveCount(0);
 });

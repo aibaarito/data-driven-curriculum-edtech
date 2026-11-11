@@ -426,7 +426,13 @@ def call_llm(settings: Settings, system: str, user: str) -> str:
         )
         r.raise_for_status()
         data = r.json()
-        return "".join(b.get("text", "") for b in data.get("content", []) if b.get("type") == "text")
+        blocks = data.get("content") if isinstance(data, dict) else None
+        if not isinstance(blocks, list) or any(not isinstance(b, dict) for b in blocks):
+            raise ValueError("Invalid provider content envelope")
+        parts = [b.get("text") for b in blocks if b.get("type") == "text"]
+        if not parts or any(not isinstance(p, str) for p in parts):
+            raise ValueError("Missing provider text")
+        return "".join(parts)
     if settings.llm_provider == "openai_compatible":
         base = settings.llm_base_url.rstrip("/")
         r = httpx.post(
@@ -438,7 +444,15 @@ def call_llm(settings: Settings, system: str, user: str) -> str:
             timeout=settings.llm_timeout_seconds,
         )
         r.raise_for_status()
-        return r.json()["choices"][0]["message"]["content"]
+        data = r.json()
+        choices = data.get("choices") if isinstance(data, dict) else None
+        if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
+            raise ValueError("Invalid provider choices envelope")
+        message = choices[0].get("message")
+        content = message.get("content") if isinstance(message, dict) else None
+        if not isinstance(content, str) or not content.strip():
+            raise ValueError("Missing provider text")
+        return content
     raise RuntimeError("LLM provider is not configured")
 
 
@@ -455,9 +469,9 @@ def _extract_json(text: str) -> Any:
 def generate_insights(context: dict[str, Any], settings: Settings, llm=call_llm) -> dict[str, Any]:
     facts = build_facts(context)
     fallback_reason: str | None = None
+    attempts = 0
     if settings.llm_enabled:
         user = "FACTS = " + json.dumps(facts, ensure_ascii=False)
-        attempts = 0
         while attempts < 2:
             attempts += 1
             try:
@@ -479,4 +493,4 @@ def generate_insights(context: dict[str, Any], settings: Settings, llm=call_llm)
         fallback_reason = "Ключ API модели не задан — используется детерминированный режим."
     payload = deterministic_insights(context)
     return {"mode": "deterministic", "model": None, "payload": payload.model_dump(), "facts": facts,
-            "attempts": 0, "fallback_reason": fallback_reason}
+            "attempts": attempts, "fallback_reason": fallback_reason}

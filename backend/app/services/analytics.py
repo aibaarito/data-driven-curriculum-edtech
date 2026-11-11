@@ -201,8 +201,12 @@ def gain_stats(pre: np.ndarray, post: np.ndarray, min_pairs: int = 2, ci_level: 
     gains = post - pre
     mean_pre, mean_post = float(np.mean(pre)), float(np.mean(post))
     mean_gain = float(np.mean(gains))
+    def reported(value: float) -> float:
+        # Preserve the sign when normal display rounding would turn a nonzero estimate/bound into zero.
+        rounded = round(float(value), 1)
+        return float(f"{value:.6g}") if value != 0 and rounded == 0 else rounded
     norm = (mean_post - mean_pre) / (100 - mean_pre) if mean_pre < 100 else None  # Hake's class-average gain
-    base = {"n_paired": n, "pre_mean": r1(mean_pre), "post_mean": r1(mean_post), "mean_gain": r1(mean_gain),
+    base = {"n_paired": n, "pre_mean": r1(mean_pre), "post_mean": r1(mean_post), "mean_gain": reported(mean_gain),
             "normalized_gain": r1(norm, 3), "ci_level": round(ci_level * 100, 2), "family_size": family_size}
     if n < max(2, min_pairs):
         return base | {"ci_low": None, "ci_high": None, "p_value": None, "p_value_adjusted": None,
@@ -221,7 +225,7 @@ def gain_stats(pre: np.ndarray, post: np.ndarray, min_pairs: int = 2, ci_level: 
         direction = "decline"
     else:
         direction = "inconclusive"
-    return base | {"ci_low": r1(lo), "ci_high": r1(hi), "p_value": r1(p, 4), "p_value_adjusted": r1(p_adj, 4),
+    return base | {"ci_low": reported(lo), "ci_high": reported(hi), "p_value": r1(p, 4), "p_value_adjusted": r1(p_adj, 4),
                    "significant": direction in ("increase", "decline"), "direction": direction}
 
 

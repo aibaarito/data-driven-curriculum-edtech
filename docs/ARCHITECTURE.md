@@ -1,7 +1,7 @@
 # Architecture
 
 ```
-Browser ──► Next.js 16 (App Router, :3010) ──/api/* rewrite──► FastAPI (:8010) ──► PostgreSQL 17
+Browser ──► Next.js 16 (App Router, :3010) ──/api/* proxy──► FastAPI (:8010) ──► PostgreSQL 17
              React 19, Tailwind 4, shadcn/ui,                   SQLAlchemy 2, Alembic,
              Recharts, RHF + Zod                                 pandas / NumPy / SciPy,
                                                                  ReportLab (PDF), httpx (LLM, optional)
@@ -71,3 +71,11 @@ default and token-protected. Single shared token, no user accounts or per-school
 UI strings for the shell, navigation, page headers and states live in `frontend/src/i18n/ru.ts`
 (`Dictionary` type); adding `en.ts`/`kk.ts` with the same shape is the path to English/Kazakh. Page bodies still
 contain inline Russian text that would need extraction.
+
+## Verification and local startup
+
+See [VERIFICATION.md](VERIFICATION.md) for independently run checks and unverified areas.
+`backend/scripts/local_services.py` parses the private backend environment, propagates the server token, waits
+for proxy readiness, and records only process identity metadata. Stop targets only this checkout’s recorded
+processes and leaves PostgreSQL running. Docker forwards the OpenAI-compatible base URL and timeout; Docker
+image execution remains unverified.

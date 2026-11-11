@@ -24,6 +24,21 @@ def test_valid_csv_parses():
     assert res.summary["students"] == 1 and res.summary["item_level"] is True
 
 
+def test_supported_csv_encodings_preserve_values():
+    source = make_csv([OK]).decode("utf-8")
+    for encoding in ("utf-8-sig", "cp1251"):
+        result = validate(source.encode(encoding))
+        assert result.ok and result.rows[0]["score"] == 2
+        assert result.rows[0]["subject"] == "Математика"
+
+
+def test_nonfinite_score_tokens_are_rejected_without_echoing_them():
+    for token in ("NaN", "Infinity", "-Infinity"):
+        result = validate(make_csv([OK.replace(",2,4,", f",{token},4,")]))
+        assert not result.ok and "INVALID_NUMBER" in codes(result)
+        assert all(token not in error.message for error in result.errors)
+
+
 def test_xlsx_parses():
     wb = openpyxl.Workbook()
     ws = wb.active

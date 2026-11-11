@@ -1,0 +1,11 @@
+{
+  "checks": {
+    "gemini_base_url": true,
+    "gemini_timeout": true,
+    "api_token_both_services": true,
+    "frontend_loopback": true,
+    "backend_not_published": true,
+    "db_health_dependency": true
+  },
+  "docker_runtime_tested": false
+}

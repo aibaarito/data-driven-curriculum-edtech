@@ -26,6 +26,11 @@ services:
       LLM_PROVIDER: ${LLM_PROVIDER:-anthropic}
       LLM_API_KEY: ${LLM_API_KEY:-}
       LLM_MODEL: ${LLM_MODEL:-claude-sonnet-5-5}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_TIMEOUT_SECONDS: ${LLM_TIMEOUT_SECONDS:-30}
+      MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-10}
+      MAX_UPLOAD_ROWS: ${MAX_UPLOAD_ROWS:-200000}
+      PREVIEW_TTL_MINUTES: ${PREVIEW_TTL_MINUTES:-60}
     depends_on:
       db:
         condition: service_healthy

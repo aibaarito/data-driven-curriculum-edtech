@@ -1,7 +1,15 @@
 import { defineConfig, devices } from "@playwright/test";
 
-// Runs against an already running stack (frontend :3010 → backend :8010). See README "End-to-end tests".
+// Runs against an explicitly selected isolated stack. See docs/VERIFICATION.md.
 // WARNING: the scenario resets ALL application data via /api/admin/reset before it starts.
+const baseURL = process.env.E2E_BASE_URL;
+if (!baseURL || process.env.E2E_ALLOW_RESET !== "isolated-database") {
+  throw new Error("Set E2E_BASE_URL and E2E_ALLOW_RESET=isolated-database after verifying the target database.");
+}
+const target = new URL(baseURL);
+if (!["127.0.0.1", "localhost", "[::1]"].includes(target.hostname) || ["3010", ""].includes(target.port)) {
+  throw new Error("Refusing destructive E2E tests: use an explicit loopback verification port other than demo port 3010.");
+}
 export default defineConfig({
   testDir: "./e2e",
   timeout: 90_000,
@@ -11,7 +19,7 @@ export default defineConfig({
   retries: 0,
   reporter: [["list"], ["html", { open: "never", outputFolder: "e2e/report" }]],
   use: {
-    baseURL: process.env.E2E_BASE_URL ?? "http://127.0.0.1:3010",
+    baseURL,
     locale: "ru-RU",
     trace: "retain-on-failure",
     screenshot: "only-on-failure",

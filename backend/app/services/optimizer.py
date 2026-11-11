@@ -352,12 +352,13 @@ def _explain(t: TopicInput, new: float, delta: float, target: float, reliable: b
     else:
         parts.append(f"Освоение {t.mastery}% не ниже цели {target:g}%")
     if t.gain is not None and direction:
+        gain_text = (f"{t.gain:+.3g}" if t.gain != 0 and round(t.gain, 1) == 0 else f"{t.gain:+.1f}")
         parts.append({
-            "increase": f"прирост от входной диагностики {t.gain:+.1f} п.п. статистически значим (связь с числом "
+            "increase": f"прирост от входной диагностики {gain_text} п.п. статистически значим (связь с числом "
                         "часов не установлена)",
-            "decline": f"результат статистически значимо СНИЗИЛСЯ ({t.gain:+.1f} п.п.) — часы не меняются "
+            "decline": f"результат статистически значимо СНИЗИЛСЯ ({gain_text} п.п.) — часы не меняются "
                        "автоматически, нужен анализ причин",
-            "inconclusive": f"изменение от входной диагностики не установлено ({t.gain:+.1f} п.п., ДИ включает ноль); "
+            "inconclusive": f"изменение от входной диагностики не установлено ({gain_text} п.п., ДИ включает ноль); "
                             "одних часов может быть недостаточно",
             "insufficient": "данных о динамике недостаточно",
         }[direction])

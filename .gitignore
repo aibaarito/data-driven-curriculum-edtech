@@ -42,6 +42,19 @@ devdb/
 *.sqlite3
 *.db
 pgdata/
+.local-services.json
+verification/*.env
+verification/browser-state.json
+
+# Keep compact, sanitized QA evidence; local captures and runtime files stay private.
+verification/*
+!verification/results.json
+!verification/route-coverage.json
+!verification/compose-static.json
+!verification/client-secret-scan.json
+!verification/upload-smoke.json
+!verification/live-smoke-default.json
+!verification/backend-final.xml
 
 # --- Logs, OS, editors ---
 *.log

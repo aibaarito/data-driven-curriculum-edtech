@@ -114,6 +114,14 @@ def test_legacy_significant_flag_with_negative_gain_is_a_decline():
     assert res["rows"][0]["gain_direction"] == "decline" and "осваивается" not in res["rows"][0]["explanation"]
 
 
+@pytest.mark.parametrize("gain,direction", [(.04, "increase"), (-.04, "decline")])
+def test_small_gain_explanation_preserves_nonzero_value(gain, direction):
+    res = run([T(1, 10, 5, 15, 30, gain=gain, direction=direction), T(2, 10, 5, 15, 95)], 20)
+    text = by_id(res)[1]["explanation"]
+    assert f"{gain:+.2f} п.п." in text
+    assert "+0.0 п.п." not in text and "-0.0 п.п." not in text
+
+
 def test_ties_are_independent_of_input_order():
     a = run([T(1, 10, 5, 15, 50), T(2, 10, 5, 15, 50)], 20.5)
     b = run([T(2, 10, 5, 15, 50), T(1, 10, 5, 15, 50)], 20.5)

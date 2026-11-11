@@ -1,7 +1,7 @@
 from datetime import date
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, FiniteFloat, model_validator
 
 from app.services.analytics import Filters
 
@@ -13,6 +13,12 @@ class FiltersBody(BaseModel):
     textbook_id: int | None = Field(None, ge=1)
     date_from: date | None = None
     date_to: date | None = None
+
+    @model_validator(mode="after")
+    def ordered_dates(self) -> "FiltersBody":
+        if self.date_from and self.date_to and self.date_from > self.date_to:
+            raise ValueError("Дата начала периода позже даты окончания.")
+        return self
 
     def to_filters(self) -> Filters:
         return Filters(self.subject_id, self.grade, self.class_id, self.textbook_id, self.date_from, self.date_to)
@@ -36,9 +42,16 @@ class OptimizerRunBody(BaseModel):
     allow_policy_relaxation: bool = False
     topics: list[TopicOverride] = Field(default_factory=list)
 
+    @model_validator(mode="after")
+    def unique_topics(self) -> "OptimizerRunBody":
+        ids = [t.topic_id for t in self.topics]
+        if len(ids) != len(set(ids)):
+            raise ValueError("Темы повторяются.")
+        return self
+
 
 class EvaluateBody(OptimizerRunBody):
-    allocation: dict[int, float]
+    allocation: dict[int, FiniteFloat]
 
 
 class DecisionBody(BaseModel):

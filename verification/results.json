@@ -1,0 +1,299 @@
+{
+  "date": "2026-11-11",
+  "timezone": "Asia/Almaty",
+  "backend": {
+    "tests": "238",
+    "failures": "0",
+    "errors": "0",
+    "skipped": "0",
+    "time": "29.759"
+  },
+  "frontend_unit_tests": 38,
+  "unique_e2e_scenarios": 8,
+  "e2e_repetition_executions": 16,
+  "routes": {
+    "expected_method_routes": 28,
+    "exercised_method_routes": 28,
+    "routes": [
+      {
+        "method": "DELETE",
+        "path": "/api/reports/{report_id}",
+        "statuses": [
+          200,
+          401,
+          404
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/api/admin/integrity",
+        "statuses": [
+          200,
+          401
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/api/analytics/overview",
+        "statuses": [
+          200,
+          401,
+          422
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/api/analytics/textbooks",
+        "statuses": [
+          200,
+          401
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/api/analytics/topics",
+        "statuses": [
+          200,
+          401
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/api/health",
+        "statuses": [
+          200
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/api/imports",
+        "statuses": [
+          200,
+          401
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/api/imports/demo-dataset.csv",
+        "statuses": [
+          200,
+          401
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/api/imports/schema",
+        "statuses": [
+          200,
+          401
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/api/imports/template.csv",
+        "statuses": [
+          200,
+          401
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/api/meta",
+        "statuses": [
+          200,
+          401,
+          403,
+          503
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/api/optimizer/inputs",
+        "statuses": [
+          200,
+          401
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/api/optimizer/runs",
+        "statuses": [
+          200,
+          401
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/api/reports",
+        "statuses": [
+          200,
+          401
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/api/reports/{report_id}",
+        "statuses": [
+          200,
+          401,
+          404,
+          422
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/api/reports/{report_id}/pdf",
+        "statuses": [
+          200,
+          401,
+          404
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/api/settings",
+        "statuses": [
+          200,
+          401
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/api/admin/reset",
+        "statuses": [
+          200,
+          401,
+          403,
+          422
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/api/ai/insights",
+        "statuses": [
+          200,
+          401,
+          422
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/api/imports/preview",
+        "statuses": [
+          200,
+          401,
+          413,
+          422
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/api/imports/{batch_id}/commit",
+        "statuses": [
+          200,
+          401,
+          404,
+          409,
+          410,
+          422,
+          500
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/api/imports/{batch_id}/discard",
+        "statuses": [
+          200,
+          401,
+          404
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/api/optimizer/evaluate",
+        "statuses": [
+          200,
+          401,
+          422
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/api/optimizer/run",
+        "statuses": [
+          200,
+          401,
+          422
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/api/optimizer/runs/{run_id}/decision",
+        "statuses": [
+          200,
+          401,
+          404,
+          409
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/api/reports",
+        "statuses": [
+          200,
+          401,
+          404,
+          422
+        ]
+      },
+      {
+        "method": "PUT",
+        "path": "/api/settings",
+        "statuses": [
+          200,
+          401,
+          422
+        ]
+      },
+      {
+        "method": "PUT",
+        "path": "/api/topics/{topic_id}",
+        "statuses": [
+          200,
+          401,
+          422
+        ]
+      }
+    ]
+  },
+  "upload_smoke": {
+    "concurrent_uploads": 3,
+    "rows_per_upload": 15830,
+    "upload_statuses": [
+      200,
+      200,
+      200
+    ],
+    "health_samples": 10,
+    "health_median_ms": 14.3,
+    "health_max_ms": 539.1,
+    "elapsed_seconds": 1.76,
+    "scope": "loopback backend8011; isolated browser database; preview only; no imports committed"
+  },
+  "docker_runtime_tested": false,
+  "live_llm_called_during_verification": false,
+  "readiness": {
+    "hackathon": "ready with specified limitations: local synthetic-data demonstration on verified macOS setup",
+    "real_student_data": "not ready"
+  },
+  "live_provider_smoke": {
+    "status": "not_run",
+    "reason": "explicit --live flag required",
+    "provider_requests": 0
+  },
+  "demo_preserved": {
+    "metadata_unchanged": true,
+    "overview_unchanged": true,
+    "integrity_ok": true
+  }
+}

@@ -4,9 +4,9 @@ from pathlib import Path
 import pytest
 
 # Integration tests run against a dedicated test database, never the dev database.
-_TEST_URL = os.environ.get("TEST_DATABASE_URL", "postgresql+psycopg://ddc:ddc_dev_pw@127.0.0.1:55433/ddc_test")
-if not _TEST_URL.rsplit("/", 1)[-1].endswith("_test"):
-    raise RuntimeError("Refusing to run tests: TEST_DATABASE_URL must point to a database whose name ends in _test")
+from tests.db_safety import require_test_url
+
+_TEST_URL = require_test_url(os.environ.get("TEST_DATABASE_URL"))
 os.environ["DATABASE_URL"] = _TEST_URL  # tests wipe this database; never the dev one
 os.environ["LLM_API_KEY"] = ""  # tests never call a real LLM
 # Access control is exercised in tests: a per-run random API token and an enabled, token-protected reset.

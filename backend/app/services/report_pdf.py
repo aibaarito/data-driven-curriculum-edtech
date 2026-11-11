@@ -34,7 +34,7 @@ def _styles() -> dict[str, ParagraphStyle]:
         "small": ParagraphStyle("small", parent=base, fontSize=8, leading=10.5, textColor=colors.HexColor("#555555")),
         "h1": ParagraphStyle("h1", parent=base, fontName="DejaVu-Bold", fontSize=17, leading=22, spaceAfter=4),
         "h2": ParagraphStyle("h2", parent=base, fontName="DejaVu-Bold", fontSize=12.5, leading=16, spaceBefore=10,
-                             spaceAfter=4, textColor=colors.HexColor("#1e3a5f")),
+                             spaceAfter=4, keepWithNext=True, textColor=colors.HexColor("#1e3a5f")),
         "tag": ParagraphStyle("tag", parent=base, fontName="DejaVu-Bold", fontSize=8, textColor=colors.HexColor("#8a5a00")),
         "cell": ParagraphStyle("cell", parent=base, fontSize=8, leading=10),
     }

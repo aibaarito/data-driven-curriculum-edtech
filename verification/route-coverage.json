@@ -1,0 +1,255 @@
+{
+  "expected_method_routes": 28,
+  "exercised_method_routes": 28,
+  "routes": [
+    {
+      "method": "DELETE",
+      "path": "/api/reports/{report_id}",
+      "statuses": [
+        200,
+        401,
+        404
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/integrity",
+      "statuses": [
+        200,
+        401
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/analytics/overview",
+      "statuses": [
+        200,
+        401,
+        422
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/analytics/textbooks",
+      "statuses": [
+        200,
+        401
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/analytics/topics",
+      "statuses": [
+        200,
+        401
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/health",
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/imports",
+      "statuses": [
+        200,
+        401
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/imports/demo-dataset.csv",
+      "statuses": [
+        200,
+        401
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/imports/schema",
+      "statuses": [
+        200,
+        401
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/imports/template.csv",
+      "statuses": [
+        200,
+        401
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/meta",
+      "statuses": [
+        200,
+        401,
+        403,
+        503
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/optimizer/inputs",
+      "statuses": [
+        200,
+        401
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/optimizer/runs",
+      "statuses": [
+        200,
+        401
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/reports",
+      "statuses": [
+        200,
+        401
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/reports/{report_id}",
+      "statuses": [
+        200,
+        401,
+        404,
+        422
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/reports/{report_id}/pdf",
+      "statuses": [
+        200,
+        401,
+        404
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/settings",
+      "statuses": [
+        200,
+        401
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/reset",
+      "statuses": [
+        200,
+        401,
+        403,
+        422
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/ai/insights",
+      "statuses": [
+        200,
+        401,
+        422
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/imports/preview",
+      "statuses": [
+        200,
+        401,
+        413,
+        422
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/imports/{batch_id}/commit",
+      "statuses": [
+        200,
+        401,
+        404,
+        409,
+        410,
+        422,
+        500
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/imports/{batch_id}/discard",
+      "statuses": [
+        200,
+        401,
+        404
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/optimizer/evaluate",
+      "statuses": [
+        200,
+        401,
+        422
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/optimizer/run",
+      "statuses": [
+        200,
+        401,
+        422
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/optimizer/runs/{run_id}/decision",
+      "statuses": [
+        200,
+        401,
+        404,
+        409
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/reports",
+      "statuses": [
+        200,
+        401,
+        404,
+        422
+      ]
+    },
+    {
+      "method": "PUT",
+      "path": "/api/settings",
+      "statuses": [
+        200,
+        401,
+        422
+      ]
+    },
+    {
+      "method": "PUT",
+      "path": "/api/topics/{topic_id}",
+      "statuses": [
+        200,
+        401,
+        422
+      ]
+    }
+  ]
+}

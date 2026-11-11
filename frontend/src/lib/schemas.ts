@@ -18,7 +18,8 @@ export const settingsSchema = z
     target_mastery: z.number({ message: "Введите число" }).min(0).max(100),
     min_students_topic: z.number({ message: "Введите число" }).int("Целое число").min(1).max(10000),
     min_students_textbook: z.number({ message: "Введите число" }).int("Целое число").min(2).max(100000),
-    min_classes_textbook: z.number({ message: "Введите число" }).int("Целое число").min(1).max(1000),
+    min_classes_textbook: z.number({ message: "Введите число" }).int("Целое число")
+      .min(3, "Для сравнения нужно не менее трёх классов на учебник").max(1000),
     max_change_pct: z.number({ message: "Введите число" }).min(0).max(100),
   })
   .refine((s) => s.difficult_threshold <= s.watch_threshold, {

@@ -67,7 +67,7 @@ describe("schemas", () => {
   });
   it("validates threshold order", () => {
     const base = { difficult_threshold: 50, watch_threshold: 65, target_mastery: 75, min_students_topic: 10,
-      min_students_textbook: 30, min_classes_textbook: 2, max_change_pct: 30 };
+      min_students_textbook: 30, min_classes_textbook: 3, max_change_pct: 30 };
     expect(settingsSchema.safeParse(base).success).toBe(true);
     expect(settingsSchema.safeParse({ ...base, difficult_threshold: 70 }).success).toBe(false);
     expect(settingsSchema.safeParse({ ...base, min_students_topic: 2.5 }).success).toBe(false);
@@ -77,9 +77,20 @@ describe("schemas", () => {
     expect(totalHoursSchema.safeParse(82.3).success).toBe(false);
     expect(totalHoursSchema.safeParse(0).success).toBe(false);
   });
+  it.each([1, 2])("rejects fewer than three classes per textbook (%s)", (count) => {
+    const base = { difficult_threshold: 50, watch_threshold: 65, target_mastery: 75, min_students_topic: 10,
+      min_students_textbook: 30, min_classes_textbook: count, max_change_pct: 30 };
+    expect(settingsSchema.safeParse(base).success).toBe(false);
+  });
 });
 
 describe("changed contracts", () => {
+  it("preserves the sign of small confidence bounds and gains", () => {
+    expect(ci(0.04, 0.08)).toBe("0,04 … 0,1");
+    expect(ci(-0.08, -0.04)).toBe("-0,1 … -0,04");
+    expect(signed(0.0004)).toBe("+0,0004");
+    expect(signed(-0.0004)).toBe("−0,0004");
+  });
   it("surfaces optimizer policy infeasibility with its code and details", () => {
     const e = errorFromBody(422, { detail: { message: "Нельзя распределить", details: ["правило"], code: "POLICY_INFEASIBLE" } });
     expect(e.code).toBe("POLICY_INFEASIBLE");

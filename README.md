@@ -10,6 +10,9 @@
 * Архитектура и API: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 * Формулы и статистические методы: [docs/ANALYTICS.md](docs/ANALYTICS.md)
 * Формат импорта, проверки целостности и восстановление старых данных: [docs/IMPORT_FORMAT.md](docs/IMPORT_FORMAT.md)
+* Independent verification: [docs/VERIFICATION.md](docs/VERIFICATION.md)
+* Exact feature-to-test matrix: [docs/FEATURE_COVERAGE.md](docs/FEATURE_COVERAGE.md)
+* Pre-defense checklist and optional live Gemini check: [docs/PRE_DEFENSE_SMOKE.md](docs/PRE_DEFENSE_SMOKE.md)
 * Переменные окружения: [.env.example](.env.example)
 
 ## Stack
@@ -28,14 +31,26 @@ Open http://127.0.0.1:3010 (published on 127.0.0.1 only; the API is not publishe
 *Docker was not available in the development environment: the compose file was parsed as YAML, but the images were
 **never built or started**.*
 
-### Option B — local, no Docker (macOS arm64; this is the verified path)
+### Option B — local, no Docker (macOS arm64; verified on an isolated stack)
+
+**The existing demo uses 3010/8010 and database `ddc_e2e` on 55433. Do not run setup or reset against it.**
+Use a new database and different ports for verification; see [docs/VERIFICATION.md](docs/VERIFICATION.md).
 Uses an embedded PostgreSQL 17 binary from npm (`@embedded-postgres/darwin-arm64`) on port 55433.
 ```bash
 ./dev.sh setup
 ./dev.sh start
 ```
-Open http://127.0.0.1:3010. Stop with `./dev.sh stop`. Tested with Python 3.14 and Node 24.
-`./dev.sh start` applies migrations (`alembic upgrade head`) and prints the read-only integrity report.
+Open http://127.0.0.1:3010. Stop this checkout’s recorded services with `./dev.sh stop` (PostgreSQL stays running).
+Tested with Python 3.14.5 and Node 24.22.0. `./dev.sh start` refuses occupied service ports, applies migrations,
+checks integrity, builds the frontend, and waits for an authenticated proxy request to succeed. It parses
+`backend/.env` without shell evaluation and passes the same API token to both servers. Environment variables
+override the private file. `BACKEND_PORT`, `FRONTEND_PORT`, `PORT_DB`, `DDC_PGDATA`, and `DDC_PG_BIN` allow an isolated
+stack; set `DATABASE_URL` explicitly to match it. `setup` installs test dependencies too. A clean dependency install
+was not repeated in the November verification; existing matching dependencies were reused.
+
+The production build currently downloads Inter from Google Fonts; network access is needed on a cold build.
+Build before the defense. The stop helper uses recorded process start time/owner, avoiding broad process-name kills.
+Processes launched by older helpers must be identified and stopped separately; they are not adopted automatically.
 
 Manual equivalent: start PostgreSQL, then
 `cd backend && . .venv/bin/activate && alembic upgrade head && uvicorn app.main:app --host 127.0.0.1 --port 8010`, and
@@ -62,23 +77,59 @@ at load time and shown as a notice in Settings.
 * There are no user accounts and no per-school isolation: anyone with the API token sees all data.
 
 ### Optional LLM
-Put `LLM_API_KEY` (and optionally `LLM_PROVIDER`, `LLM_MODEL`) in `backend/.env`. Without a key the
-**deterministic explainer** is used and the UI says so. The LLM receives only aggregated, verified metrics.
+Without a key the **deterministic explainer** is used and the UI labels the mode. For Gemini, edit only the private
+server file (`backend/.env` locally; root `.env` for Compose):
+
+```dotenv
+LLM_PROVIDER=openai_compatible
+LLM_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai/
+LLM_MODEL=gemini-3.8-flash
+LLM_TIMEOUT_SECONDS=60
+# Set LLM_API_KEY privately; never paste a real key into documentation or chat.
+```
+
+The endpoint matches [Google’s official OpenAI compatibility documentation](https://aistudio.google.com/docs/openai),
+checked 11 November 2026. Check model access for your own account before relying on it. Compose now forwards the
+base URL and timeout as well as provider/key/model, but its images have **not** been run here. Locally, the helper
+passes the API token to the frontend; for a manual launch set `API_TOKEN` and `API_URL` on the frontend process too.
+The model receives aggregate facts; output guards are heuristic and do not certify every sentence.
+
+Evidence: the handoff records one successful live Gemini request (about 27 seconds). This verification used mocks
+and deterministic mode, and made no live model calls. The prior key’s rotation is unconfirmed; replace it privately
+before using it beyond the original demonstration. Do not copy the original private configuration into source exports.
 
 ## Tests
+
+Tests destroy the schema of their target database. `TEST_DATABASE_URL` is now required explicitly and its parsed
+PostgreSQL database name must end in `_test`. Create a **fresh** database on a separate verification instance/port.
+Never use `ddc_e2e`: despite its name, it is the live demonstration database.
+
 ```bash
-cd backend && . .venv/bin/activate && python -m pytest -q      # unit + integration (wipes database ddc_test only)
-cd frontend && npm run typecheck && npx eslint src && npm test  # types, lint, Vitest
-python backend/scripts/simulate_textbook_fpr.py --sims 400      # textbook-verdict false-positive/power simulation
+# From backend/, with dependencies installed:
+TEST_DATABASE_URL=postgresql+psycopg://verification@127.0.0.1:55434/ddc_verification_test python -m pytest -q
+# From frontend/:
+npm run typecheck       # generates Next.js route types before tsc
+npx eslint src e2e playwright.config.ts
+npm test
+npm run build
 ```
-End-to-end (the journey RESETS ALL DATA, so run it against a dedicated database such as `ddc_e2e`): start the backend
-with `DATABASE_URL=…/ddc_e2e API_TOKEN=<t> ENABLE_DATA_RESET=true ADMIN_TOKEN=<a>`, the frontend with
-`API_TOKEN=<t> API_URL=http://127.0.0.1:8010 npm start`, then `E2E_ADMIN_TOKEN=<a> npm run e2e`.
-Screenshots of the E2E run are written to `frontend/e2e/screenshots/` (including the exported `report.pdf`).
+
+Browser tests require an already running isolated backend/database and production frontend. After checking those
+service targets, run from `frontend/`:
+
+```bash
+E2E_BASE_URL=http://127.0.0.1:3011 E2E_ALLOW_RESET=isolated-database \
+  E2E_ADMIN_TOKEN='<private test admin token>' npm run e2e
+```
+
+Load the actual token from a private file, rather than putting it literally in shell history. The configuration refuses
+missing targets, remote hosts, and demo port 3010. The journey **resets all data** on the selected stack. Use
+`E2E_ARTIFACT_DIR` to keep new screenshots/PDFs separate from the archive’s historical screenshots.
+Full commands, results, limitations, and coverage are in [docs/VERIFICATION.md](docs/VERIFICATION.md).
 
 ## Demo script for judges (≈5 min)
-1. Start clean: **Settings → «Удалить все данные»** (type УДАЛИТЬ and the admin token from `backend/.env`; only
-   available when reset is enabled for development). The dashboard shows an empty state.
+1. Use the prepared synthetic demo, or start clean on a **separate rehearsal database**. Reset only that rehearsal
+   stack via Settings with its private admin token. Preserve the running demo database `ddc_e2e`.
 2. **Импорт данных** → «Демо-набор (синтетический)» downloads the CSV → choose it → **«Проверить файл»**:
    15 830 rows, 199 students, 0 errors → **«Подтвердить импорт»**. Optionally upload a broken file first to show
    row-level errors (score > max, ФИО instead of an ID) and that import stays disabled.
@@ -115,8 +166,9 @@ whole journey in a browser: upload → analyze → difficulties → textbooks �
 * **Access control is a single shared token plus a local-only default.** No user accounts, roles, audit log or per-school
   isolation. Not suitable for real student data as is.
 * Docker images were never built or run here (Docker unavailable).
-* A live LLM was not exercised end-to-end (no key). The LLM path is tested only with mocked responses (placeholders,
-  swapped values, digits, names, promises, status contradictions, malformed JSON, provider errors).
+* The handoff records one successful live Gemini request. The current independent suite used mocked provider
+  responses, including invalid envelopes, timeouts, HTTP 401/429/500 and grounding violations. Sustained live
+  provider reliability, quota and account access remain unverified.
 * The hours plan is one plan per grade (median of class hours); per-class plans are not supported.
 * Textbook inference with few classes has low power (see docs/ANALYTICS.md): most real differences will be reported as
   "insufficient evidence". Baseline adjustment cannot remove residual confounding (teacher, class composition).

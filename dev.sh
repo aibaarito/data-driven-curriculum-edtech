@@ -3,9 +3,10 @@
 # Usage: ./dev.sh setup   (first time)   ./dev.sh start   ./dev.sh stop
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")" && pwd)"
-PG="$ROOT/devdb/node_modules/@embedded-postgres/darwin-arm64/native/bin"
-PGDATA="$ROOT/devdb/data"
-PORT_DB=55433
+PG="${DDC_PG_BIN:-$ROOT/devdb/node_modules/@embedded-postgres/darwin-arm64/native/bin}"
+PGDATA="${DDC_PGDATA:-$ROOT/devdb/data}"
+PORT_DB="${PORT_DB:-55433}"
+PYTHON="${DDC_PYTHON:-$ROOT/backend/.venv/bin/python}"
 
 case "${1:-start}" in
   setup)
@@ -17,9 +18,10 @@ case "${1:-start}" in
       "$PG/initdb" -D "$PGDATA" -U ddc --pwfile="$ROOT/devdb/pwfile" -A scram-sha-256 -E UTF8 --locale=C
     fi
     "$PG/pg_ctl" -D "$PGDATA" -o "-p $PORT_DB -k /tmp -h 127.0.0.1" -l "$ROOT/devdb/pg.log" -w start
-    (cd "$ROOT/backend" && python3 -m venv .venv && . .venv/bin/activate && pip install -r requirements.txt && python - <<'EOF'
+    (cd "$ROOT/backend" && python3 -m venv .venv && . .venv/bin/activate && pip install -r requirements.txt -r requirements-dev.txt && PORT_DB="$PORT_DB" python - <<'EOF'
+import os
 import psycopg
-c = psycopg.connect("postgresql://ddc:ddc_dev_pw@127.0.0.1:55433/postgres", autocommit=True)
+c = psycopg.connect(f"postgresql://ddc:ddc_dev_pw@127.0.0.1:{int(os.environ['PORT_DB'])}/postgres", autocommit=True)
 for db in ("ddc", "ddc_test"):
     if not c.execute("SELECT 1 FROM pg_database WHERE datname=%s", (db,)).fetchone():
         c.execute(f"CREATE DATABASE {db}")
@@ -36,17 +38,18 @@ EOF
     echo "Setup complete. Run ./dev.sh start"
     ;;
   start)
+    # Check service ports before starting even this checkout's database.
+    for port in "${BACKEND_PORT:-8010}" "${FRONTEND_PORT:-3010}"; do
+      if lsof -nP -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1; then
+        echo "Port $port is in use; refusing to change running services." >&2
+        exit 1
+      fi
+    done
     "$PG/pg_ctl" -D "$PGDATA" status >/dev/null 2>&1 || \
       "$PG/pg_ctl" -D "$PGDATA" -o "-p $PORT_DB -k /tmp -h 127.0.0.1" -l "$ROOT/devdb/pg.log" -w start
-    (cd "$ROOT/backend" && . .venv/bin/activate && alembic upgrade head && \
-      (python scripts/integrity_check.py || echo "Integrity check found issues: see output above (read-only).") && \
-      nohup uvicorn app.main:app --host 127.0.0.1 --port 8010 > "$ROOT/backend.log" 2>&1 &)
-    (cd "$ROOT/frontend" && npm run build && nohup npx next start -p 3010 -H 127.0.0.1 > "$ROOT/frontend.log" 2>&1 &)
-    echo "Open http://127.0.0.1:3010"
+    "$PYTHON" "$ROOT/backend/scripts/local_services.py" start
     ;;
   stop)
-    pkill -f "uvicorn app.main:app" || true
-    pkill -f "next start -p 3010" || true
-    "$PG/pg_ctl" -D "$PGDATA" stop || true
+    "$PYTHON" "$ROOT/backend/scripts/local_services.py" stop
     ;;
 esac

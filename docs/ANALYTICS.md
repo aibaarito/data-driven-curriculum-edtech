@@ -90,4 +90,8 @@ only return findings bound to one entity, with prose that references values thro
 deterministically with units. Every rendered finding — LLM or deterministic — must contain only numbers of its own entity
 (no small-number exemptions). Heuristic guards additionally reject promises/causal claims, statements contradicting a
 topic's status or gain direction, and naming a "better" textbook when evidence is insufficient. One retry, then the
-deterministic explainer. The live provider path has only been tested with mocks.
+deterministic explainer. The handoff records one successful live Gemini request; the independent November verification used mocks only.
+HTTP failures fall back after one attempt; invalid output/envelopes have at most two attempts. `attempts` reports the
+actual number of calls, including on fallback. Semantic guards remain heuristic. The 400-simulation-per-scenario
+table above was independently reproduced on 11 November 2026; it validates those simulated conditions, not all
+possible school data or causal educational effectiveness.

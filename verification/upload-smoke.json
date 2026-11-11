@@ -1,0 +1,14 @@
+{
+  "concurrent_uploads": 3,
+  "rows_per_upload": 15830,
+  "upload_statuses": [
+    200,
+    200,
+    200
+  ],
+  "health_samples": 10,
+  "health_median_ms": 14.3,
+  "health_max_ms": 539.1,
+  "elapsed_seconds": 1.76,
+  "scope": "loopback backend8011; isolated browser database; preview only; no imports committed"
+}

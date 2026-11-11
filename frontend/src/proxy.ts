@@ -15,10 +15,14 @@ export function proxy(request: NextRequest) {
   if (!user || !pass) return NextResponse.next();
   const header = request.headers.get("authorization") ?? "";
   if (header.startsWith("Basic ")) {
-    const decoded = atob(header.slice(6));
-    const idx = decoded.indexOf(":");
-    if (idx > 0 && safeEqual(decoded.slice(0, idx), user) && safeEqual(decoded.slice(idx + 1), pass)) {
-      return NextResponse.next();
+    try {
+      const decoded = atob(header.slice(6));
+      const idx = decoded.indexOf(":");
+      if (idx > 0 && safeEqual(decoded.slice(0, idx), user) && safeEqual(decoded.slice(idx + 1), pass)) {
+        return NextResponse.next();
+      }
+    } catch {
+      // Malformed base64 is an authentication failure.
     }
   }
   return new NextResponse("Требуется авторизация.", {
