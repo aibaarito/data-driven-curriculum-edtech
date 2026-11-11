@@ -20,6 +20,7 @@
 * Independent verification: [docs/VERIFICATION.md](docs/VERIFICATION.md)
 * Exact feature-to-test matrix: [docs/FEATURE_COVERAGE.md](docs/FEATURE_COVERAGE.md)
 * Pre-defense checklist and optional live Gemini check: [docs/PRE_DEFENSE_SMOKE.md](docs/PRE_DEFENSE_SMOKE.md)
+* Railway: [docs/RAILWAY_DEPLOYMENT.md](docs/RAILWAY_DEPLOYMENT.md)
 * Переменные окружения: [.env.example](.env.example)
 
 ## Stack
