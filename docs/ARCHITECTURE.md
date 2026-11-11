@@ -27,6 +27,13 @@ Browser ──► Next.js 16 (App Router, :3010) ──/api/* proxy──► Fas
 | `app/services/ai.py` | Facts builder, LLM call, grounding validation, deterministic explainer |
 | `app/services/context.py` | Builds the verified analysis context for a filter set |
 | `app/services/report_pdf.py` | PDF rendering (DejaVu Sans for Cyrillic) |
+| `app/services/evidence.py` | Dataset revision, analysis fingerprint, evidence readiness, Evidence Passports, frozen snapshots |
+| `app/services/curriculum_graph.py` | Prerequisite DAG validation, traversal, foundational gaps, priority heuristic, chains |
+| `app/services/decisions.py` | Deterministic decision rules → versioned decision candidates |
+| `app/services/scenarios.py` | Conservative / balanced / gap-focused plans via `optimizer.optimize` |
+| `app/services/interventions.py` | Intervention lifecycle and before/after outcome evaluation |
+| `app/observability.py` | X-Request-ID and one sanitized structured access-log line per request |
+| `app/api/decision_routes.py` | Decision-intelligence endpoints |
 | `app/api/routes.py` | REST endpoints |
 | `scripts/generate_synthetic.py` | Deterministic synthetic dataset (seed 20251110) |
 
@@ -35,7 +42,11 @@ Browser ──► Next.js 16 (App Router, :3010) ──/api/* proxy──► Fas
 `subjects`, `topics` (grade, order, min/max hours, priority), `topic_prerequisites`, `textbooks`,
 `assessments` (date, kind, comparison group), `assessment_results` (item-level; unique student+assessment+topic+item;
 CHECK max>0, 0≤score≤max), `class_topic_hours`, `import_batches` (staged preview + validation report),
-`recommendation_runs` (params, result, status), `curriculum_allocations` (accepted plan), `generated_reports`, `app_settings`.
+`recommendation_runs` (params, result, status; since v2 also scenario, evidence fingerprint + frozen snapshot,
+idempotency key, review note), `curriculum_allocations` (accepted plan), `generated_reports`, `app_settings`,
+`interventions` (lifecycle, frozen baseline, evaluation) and `audit_events` (decisions and transitions).
+`topic_prerequisites` carry `origin` (import/expert/suggested) and `review_status` (approved/pending/rejected).
+Migration `b7c1d2e3f4a5` is additive and reversible.
 All FKs declared with ON DELETE rules; indexes on every FK and on (assessment, topic).
 
 ## API (all under `/api`)
@@ -58,6 +69,25 @@ All FKs declared with ON DELETE rules; indexes on every FK and on (assessment, t
 | GET/PUT | `/settings` | Analysis thresholds (validated) and LLM status |
 | POST | `/admin/reset` | Delete all data; only with `ENABLE_DATA_RESET=true`, header `X-Admin-Token`, body `{"confirm": "УДАЛИТЬ"}` |
 | GET | `/admin/integrity` | Read-only invariant report (legacy data, stale previews) |
+
+### Decision intelligence (v2)
+| Method | Path | Description |
+|---|---|---|
+| GET | `/context` | Evidence context (fingerprint, revision, algorithm version) for filters |
+| GET | `/evidence/topics/{id}` · `/evidence/textbooks` | Evidence Passports; `422 SCOPE_MISMATCH` for a topic outside the requested subject/grade |
+| GET | `/curriculum/graph?subject_id&grade` | Nodes with diagnostics, edges, validation, ranking, chains |
+| POST/DELETE | `/curriculum/prerequisites`, `/curriculum/prerequisites/{id}` · POST `…/{id}/review` | Add (expert → approved, suggested → pending), review, delete; `422 GRAPH_INVALID` (cycle, cross-subject, self), `409 DUPLICATE_EDGE` |
+| GET | `/decisions/overview?subject_id&grade` | Readiness, decision candidates, graph summary, plans awaiting approval, interventions |
+| POST | `/optimizer/scenarios/preview` | Three scenarios; **no writes** |
+| POST | `/optimizer/scenarios/save` | Recompute + store as proposed run; `409 STALE_SCENARIO`, `409 IDEMPOTENCY_CONFLICT`, idempotent replay |
+| GET | `/optimizer/runs/{id}` | Run with frozen evidence snapshot, `evidence_status` (current/stale/unknown) and audit trail |
+| POST | `/optimizer/runs/{id}/decision` | (extended) `note`; accepting a stale run needs `acknowledge_stale` (`409 STALE_RECOMMENDATION`) |
+| POST/GET | `/interventions`, `/interventions/{id}` | Create from an accepted run (`409 INVALID_TRANSITION` otherwise); list; detail with audit |
+| POST | `/interventions/{id}/transition` · `/interventions/{id}/evaluate` | Lifecycle (`409 INVALID_TRANSITION`); before/after evaluation |
+| GET | `/imports/demo-followup.csv` | **Simulated** follow-up assessment for demonstrating evaluation |
+
+Structured errors use `{"detail": {"code", "message", "details"}}`. Reports now store an evidence fingerprint, and
+`GET /reports/{id}` adds `evidence_status`.
 
 Errors are JSON `{"detail": ...}` in Russian; stack traces are never returned (generic 500 handler, DB-down → 503).
 

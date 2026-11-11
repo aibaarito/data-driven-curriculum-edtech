@@ -51,3 +51,21 @@ not to all possible inputs or deployment environments. Backend test names are un
 - Route/status reachability: `verification/route-coverage.json` (28 method/routes; not branch coverage).
 - Current screenshots and PDF: `verification/browser-artifacts/`; four rendered pages: `verification/pdf-pages/`.
 - Pre-defense checks: [PRE_DEFENSE_SMOKE.md](PRE_DEFENSE_SMOKE.md).
+
+## Decision intelligence (v2.0) — added 11 November 2026
+
+Tests are in `backend/tests/test_decision_intelligence.py` and Playwright `e2e/decisions.spec.ts`. They ran on a
+Linux disposable PostgreSQL 16 stack (see the top section of VERIFICATION.md).
+
+| Feature / action | Expected behavior | Relevant automated tests | Actual result | Remaining gap |
+|---|---|---|---|---|
+| Prerequisite graph validation | Cycle, self, duplicate, unknown, cross-subject rejected; deterministic order; disconnected topics safe | `test_find_cycle_*`, `test_validate_edges_*`, `test_topological_order_*`, `test_invalid_graph_is_reported_not_traversed`, `test_import_rejects_cyclic_prerequisites`, `test_api_prerequisite_mutations_are_validated` | Pass | No bulk edge editor in UI (API only) |
+| Graph diagnostics and priority | Foundational gap identified without causal claim; heuristic normalized; insufficient evidence → 0 | `test_priority_score_*`, `test_diagnose_*`, `test_api_graph_is_valid_deterministic_and_identifies_foundational_gap`; Playwright diagnose journey | Pass | Heuristic weights are not empirically calibrated |
+| Evidence readiness and passports | Categories per rules; passport numbers equal topic analytics; scope mismatch refused | `test_evidence_categories_*`, `test_api_topic_passport_*`, `test_api_textbook_passports_gate_winners` | Pass | — |
+| Decision rules | Decline → methodology review, never more hours; stable, versioned IDs; no predictions | `test_decision_rule*`, `test_ok_topics_*`, `test_api_decision_center_overview` | Pass | Rules not user-configurable |
+| Scenarios | Real optimizer runs; balanced = single plan; hard constraints on 120 random problems; structured per-scenario errors; identical plans reported | `test_balanced_*`, `test_conservative_*`, `test_identical_*`, `test_scenario_errors_*`, `test_all_scenarios_satisfy_hard_constraints_on_random_problems`, `test_api_scenario_preview_*` | Pass | No certified optimality |
+| Scenario save | Stale fingerprint refused; idempotent replay; key conflict; snapshot without student IDs | `test_api_scenario_save_is_stale_safe_and_idempotent` | Pass | — |
+| Stale history | Saved run/report keeps frozen content, labelled stale; accepting stale needs acknowledgement; audit | `test_api_stale_recommendation_*`, `test_verification.py::test_report_snapshot_*`, `test_api_report_carries_evidence_fingerprint` | Pass | — |
+| Intervention lifecycle and outcome | Illegal transitions refused; frozen baseline; evaluation waits for data; non-causal statements; missingness | `test_lifecycle_transitions`, `test_outcome_evaluation_*`, `test_api_closed_loop_lifecycle_and_simulated_outcome`; Playwright closed-loop journey | Pass (simulated follow-up) | No comparison-group design; real outcome data never tested |
+| Observability | X-Request-ID; sanitized JSON access line | `test_api_request_id_and_sanitized_access_log` | Pass | No log shipping/metrics backend |
+| New screens UI | Decision Center, Curriculum Map, Scenarios, passports; 390px without page scroll; keyboard selection | `evidence-passport.test.tsx`; Playwright `e2e/decisions.spec.ts` (3 scenarios) | Pass | No formal WCAG audit |

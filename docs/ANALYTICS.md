@@ -95,3 +95,75 @@ HTTP failures fall back after one attempt; invalid output/envelopes have at most
 actual number of calls, including on fallback. Semantic guards remain heuristic. The 400-simulation-per-scenario
 table above was independently reproduced on 11 November 2026; it validates those simulated conditions, not all
 possible school data or causal educational effectiveness.
+
+## Decision intelligence (v2.0, `ALGORITHM_VERSION = ddc-2.0.0`)
+Full contracts: [DECISION_INTELLIGENCE_ARCHITECTURE.md](DECISION_INTELLIGENCE_ARCHITECTURE.md).
+
+### Output kinds
+Every decision-layer statement belongs to exactly one kind:
+
+| Kind | Example | Source |
+|---|---|---|
+| Observation | "Mastery 40.9% for 156 students in 6 classes" | computed from data |
+| Statistical interpretation | "Change not established (99.4% CI −5.2…6.5)" | stated method + uncertainty |
+| Recommendation | "Review the teaching methodology" | decision rule table below |
+| Hypothesis | "The action *may* raise mastery — not verified" | never asserted as a result |
+
+### Evidence readiness (`evidence.assess_topic`)
+| Category | Topic rule |
+|---|---|
+| `insufficient` | no outcome data, or < `min_students_topic` students. Actions are blocked and hours are held |
+| `exploratory` | enough students, but one of: single class, no matched pre/post, < `min_students_topic` pairs, pairing coverage < 50% |
+| `supported` | enough students, ≥ 2 classes, tested pre/post direction, coverage ≥ 50% |
+| `incomparable` | textbook pairs without common items or in different grades. No winner is computed |
+| `stale` | a saved artifact whose evidence fingerprint differs from the current one |
+
+These are readiness labels, not probabilities.
+
+### Decision rules (`decisions.topic_candidates`)
+| Problem (from existing interpretation codes) | Primary action | Rejected alternative (reason shown) |
+|---|---|---|
+| insufficient evidence | collect more evidence (+ diagnostic) | more hours: diagnosis not established |
+| low + significant decline / ok + significant decline | review methodology | more hours: the cause is unknown, so hours are held unless an expert overrides |
+| low + change not established | review methodology (+ hours only inside a reviewed scenario) | hours as the primary remedy |
+| low + no baseline / too few pairs | additional diagnostic assessment | methodology review: cannot separate weak start from weak learning |
+| low + significant increase | increase hours by reallocating within the budget | methodology review is not the first priority |
+| weak topic that precedes weak topics | + "consolidate before dependent topics" | — |
+| topic with weak prerequisites | + "check prerequisite mastery" | — |
+| textbook pair with an observed difference | review textbook suitability | replace textbook: the association is observational |
+
+Each candidate carries the balanced-plan hour change for the topic. It also shows the change when the budget is
+±2 h (an actual optimizer re-run), so the user can see what would happen if the available hours changed.
+
+### Curriculum priority heuristic (`curriculum_graph.priority_score`)
+`score = 100 · evidence · gap · (0.6 + 0.2·curriculum + 0.2·dependency)`. The components are
+`gap = clip((target − mastery)/target, 0, 1)`, `curriculum = (priority − 1)/2`,
+`dependency = downstream / max_downstream` and `evidence ∈ {1, 0.6, 0}`.
+It is a transparent ranking aid. It was not trained and does not predict achievement.
+On the demo, grade 7 ranks «Формулы сокращённого умножения» first (38.6; it precedes the weak topic «Разложение на
+множители»).
+
+### Scenarios (`scenarios.build_scenarios`)
+| Scenario | Change band | Extra holds | Need weight |
+|---|---|---|---|
+| Conservative | ½ × setting | topics whose evidence is not `supported` | 1 |
+| Balanced | setting | — | 1 (identical to `POST /optimizer/run`) |
+| Gap-focused | min(100, 1.5 × setting) | — | 1 + 0.25·min(weak downstream topics, 4)/4 |
+
+The same projection algorithm (bisection + largest remainder) is used throughout. No scenario claims global
+optimality. Identical allocations are reported as identical, with the reason.
+
+### Outcome evaluation (`interventions.evaluate`)
+The analysis is a before/after comparison on the affected topics of the same subject and grade, split at
+`implemented_on`. It reports:
+* descriptive change against the **frozen** baseline mastery;
+* a paired t-interval for students seen in both periods (Bonferroni over the affected topics);
+* lost and new students;
+* whether recomputing the before-period still matches the frozen snapshot.
+
+There is no comparison group, so the result is always labelled as an observed association. It is never described as
+"impact".
+
+**Simulated follow-up file.** `scripts/generate_followup.py` (seed 20261111) generates
+`synthetic_followup.csv`. The scores are binomial draws around each student's A7-POST level **+3 p.p. (a simulation
+parameter)**. Any "change" measured on it exists by construction and is not validation.

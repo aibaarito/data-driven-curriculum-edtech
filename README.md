@@ -7,6 +7,13 @@
 > Демонстрационные данные **полностью синтетические** (seed 20251110, школа `SYNTH-DEMO`), а интерфейс помечает их
 > как синтетические. Это не данные реальной школы.
 
+**Версия 2.0 — Curriculum Decision Intelligence.** Помимо аналитики система отвечает на пять вопросов:
+что не осваивается → почему (доказательства, пререквизиты) → что изменить (сценарии плана часов в реальных
+ограничениях) → почему этому можно доверять (паспорт доказательств, неопределённость, версия данных) → сработало ли
+(отслеживание вмешательств и оценка «до/после» без причинных заявлений). Решения принимают детерминированные
+движки; ИИ только объясняет проверенные факты.
+
+* Архитектура Decision Intelligence: [docs/DECISION_INTELLIGENCE_ARCHITECTURE.md](docs/DECISION_INTELLIGENCE_ARCHITECTURE.md)
 * Архитектура и API: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 * Формулы и статистические методы: [docs/ANALYTICS.md](docs/ANALYTICS.md)
 * Формат импорта, проверки целостности и восстановление старых данных: [docs/IMPORT_FORMAT.md](docs/IMPORT_FORMAT.md)
@@ -122,7 +129,8 @@ E2E_BASE_URL=http://127.0.0.1:3011 E2E_ALLOW_RESET=isolated-database \
   E2E_ADMIN_TOKEN='<private test admin token>' npm run e2e
 ```
 
-Load the actual token from a private file, rather than putting it literally in shell history. The configuration refuses
+If the pinned Playwright browser build is not installed (e.g. a sandbox image with its own Chromium), add
+`E2E_CHROMIUM_PATH=/path/to/chrome`. Load the actual token from a private file, rather than putting it literally in shell history. The configuration refuses
 missing targets, remote hosts, and demo port 3010. The journey **resets all data** on the selected stack. Use
 `E2E_ARTIFACT_DIR` to keep new screenshots/PDFs separate from the archive’s historical screenshots.
 Full commands, results, limitations, and coverage are in [docs/VERIFICATION.md](docs/VERIFICATION.md).
@@ -151,6 +159,26 @@ Full commands, results, limitations, and coverage are in [docs/VERIFICATION.md](
 8. **Отчёты** → «Сформировать отчёт» → **«Скачать PDF»**. The report's sections are labelled as observations,
    recommendation or limitations.
 
+## Three-minute demo (v2.0, synthetic data)
+Prepared state: synthetic dataset imported on a rehearsal stack (never `ddc_e2e` unless it is the intended demo).
+Say aloud that the data is synthetic.
+
+| Time | Screen | What to show |
+|---|---|---|
+| 0:00–0:25 | — | Schools collect assessment data, but turning it into defensible curriculum changes is hard. |
+| 0:25–0:55 | **Центр решений**, Математика / 7 | Readiness strip: 8 topics, evidence sufficient. «Формулы сокращённого умножения» 40.9%: change *not established*, so the recommendation is **methodology review, not more hours** (open "why not other actions"). «Разложение на множители» is low but improving, so hours are reallocated. |
+| 0:55–1:20 | **Карта программы** | Select «Формулы…» (keyboard works). It is a weak prerequisite of a weak topic, priority 38.6, and the chain «Степень → … → Разложение» is highlighted. The text says it *precedes*, not *causes*. |
+| 1:20–2:00 | **Сценарии плана** | Budget 82 h → three real plans; all hard constraints are green; the comparison table shows exact differences. Optionally set 10 h to show per-scenario `INFEASIBLE`. Choose «Фокус на пробелах» for approval. |
+| 2:00–2:30 | **Паспорт доказательств** | Observation, 99.4% Bonferroni CI −5.2…6.5, "does not prove absence of effect", why the action is allowed, dataset fingerprint, synthetic flag. |
+| 2:30–3:00 | **Центр решений** → Отчёты | Approve → plan intervention → mark implemented (2026-09-01) → awaiting data → "Оценить": *no data yet*. Import «synthetic_followup_SIMULATED.csv» (`/api/imports/demo-followup.csv`) → evaluation with the **non-causal** statement, and the approved plan is now marked *stale* with its frozen evidence intact. Export the PDF report. |
+
+Closing line: *"Data-Driven Curriculum does not simply analyze what students scored. It helps educators understand
+what to change, justify their decisions, and evaluate whether those changes worked."* The follow-up file is
+**simulated** (+3 p.p. by construction): do not present its result as proof that the intervention works.
+
+**Backup plan.** Record the run above beforehand. `npm run e2e` with `E2E_ARTIFACT_DIR` produces the same screens
+as screenshots (`di-01`…`di-06`). Everything works without an LLM key, so a Gemini outage does not affect the demo.
+
 ## Official case coverage
 | Requirement | Where | Acceptance tests |
 |---|---|---|
@@ -175,5 +203,13 @@ whole journey in a browser: upload → analyze → difficulties → textbooks �
 * Assessment difficulty is handled only by comparing textbooks on common items. There is no IRT/item-difficulty model.
 * Localization: the shell, navigation, page headers and states come from `src/i18n/ru.ts`, but page bodies still
   contain inline Russian strings.
+* Decision intelligence: the priority score is a documented heuristic, not a trained predictor. Decision rules are
+  fixed in code (not user-configurable). Outcome evaluation is before/after **without a comparison group**, so it
+  reports associations only. Knowledge tracing was not added: the data has 2–3 occasions per topic, which is too
+  few to fit or validate a model. No OR-Tools solver; scenarios use the existing deterministic projection
+  optimizer without optimality certification.
+* The evidence fingerprint is scope-limited (subject + grade, plus filters). Any import, constraint, approved edge,
+  hours or settings change in that scope marks saved runs, reports and interventions as stale. Their stored
+  snapshots are never recomputed.
 * Analytics are recomputed per request (~0.1 s for 16k rows). For much larger datasets, add caching or materialized
   aggregates.
