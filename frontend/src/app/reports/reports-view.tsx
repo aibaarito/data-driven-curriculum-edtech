@@ -17,8 +17,10 @@ import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useApi } from "@/hooks/use-api";
 import { api, ApiError } from "@/lib/api";
-import { dateTime, int, pct, signed } from "@/lib/format";
+import { dateTime, int, pct } from "@/lib/format";
+import { summarizeGain } from "@/lib/gain";
 import type { Report, ReportListItem } from "@/lib/types";
+import { cn } from "@/lib/utils";
 
 export function ReportsView() {
   return (
@@ -104,17 +106,17 @@ function Content() {
               {list.data.map((r) => (
                 <li key={r.id} className="flex flex-wrap items-center justify-between gap-2 py-2.5 text-sm">
                   <span className="min-w-0">
-                    <span className="block font-medium">{r.title}</span>
+                    <span className="block font-medium break-words">{r.title}</span>
                     <span className="text-xs text-muted-foreground">
-                      {dateTime(r.created_at)} · {r.labels ? Object.entries(r.labels).map(([k, v]) => `${k}: ${v}`).join(" · ") : ""}
+                      Снимок от {dateTime(r.created_at)}{r.labels ? ` · ${Object.entries(r.labels).map(([k, v]) => `${k}: ${v}`).join(" · ")}` : ""}
                     </span>
                   </span>
                   <span className="flex gap-1">
-                    <Button size="sm" variant="ghost" onClick={() => open(r.id)}><Eye className="size-4" /> Открыть</Button>
+                    <Button size="sm" variant="ghost" onClick={() => open(r.id)} aria-label={`Открыть отчёт: ${r.title}`}><Eye className="size-4" aria-hidden /> Открыть</Button>
                     <Button size="sm" variant="ghost" asChild>
-                      <a href={`/api/reports/${r.id}/pdf`} download><Download className="size-4" /> PDF</a>
+                      <a href={`/api/reports/${r.id}/pdf`} download aria-label={`Скачать PDF: ${r.title}`}><Download className="size-4" aria-hidden /> PDF</a>
                     </Button>
-                    <Button size="sm" variant="ghost" aria-label="Удалить отчёт" onClick={() => setToDelete(r)}><Trash2 className="size-4" /></Button>
+                    <Button size="sm" variant="ghost" aria-label={`Удалить отчёт: ${r.title}`} onClick={() => setToDelete(r)}><Trash2 className="size-4" aria-hidden /></Button>
                   </span>
                 </li>
               ))}
@@ -144,10 +146,15 @@ function ReportView({ report }: { report: Report }) {
   return (
     <Card data-testid="report-view">
       <CardHeader>
-        <CardTitle>{report.title}</CardTitle>
-        <CardDescription>
-          {Object.entries(c.filter_labels).map(([k, v]) => `${k}: ${v}`).join(" · ")}
-          {c.synthetic && <Badge variant="outline" className="ml-2 border-warning/50 bg-warning/10 text-amber-800">синтетические данные</Badge>}
+        <CardTitle className="break-words">{report.title}</CardTitle>
+        <CardDescription className="space-y-1">
+          <span className="block" data-testid="report-snapshot">
+            Снимок результатов на {dateTime(report.created_at)}. Последующие изменения данных и настроек не изменяют этот отчёт.
+          </span>
+          <span className="block">
+            {Object.entries(c.filter_labels).map(([k, v]) => `${k}: ${v}`).join(" · ")}
+            {c.synthetic && <Badge variant="outline" className="ml-2 border-warning/50 bg-warning/10 text-amber-800">синтетические данные</Badge>}
+          </span>
         </CardDescription>
         <CardAction>
           <Button asChild data-testid="download-pdf">
@@ -156,6 +163,20 @@ function ReportView({ report }: { report: Report }) {
         </CardAction>
       </CardHeader>
       <CardContent className="space-y-6 text-sm">
+        {report.discussion && report.discussion.length > 0 && (
+          <section className="rounded-lg border border-primary/25 bg-accent/30 p-3" data-testid="report-discussion">
+            <h3 className="mb-2 font-semibold">Выводы для обсуждения</h3>
+            <ul className="space-y-2">
+              {report.discussion.map((d, i) => (
+                <li key={i} className="flex flex-col gap-1 sm:flex-row sm:items-start sm:gap-3">
+                  <span className="shrink-0"><KindTag kind={d.kind} /></span>
+                  <span>{d.text}</span>
+                </li>
+              ))}
+            </ul>
+            <p className="mt-2 text-xs text-muted-foreground">Сформировано по сохранённому снимку; подробные данные — в разделах ниже.</p>
+          </section>
+        )}
         <Section title="1. Сводка оцениваний" kind="observation">
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
             {[["Учеников", int(c.overview.students)], ["Оцениваний", int(c.overview.assessments)], ["Классов", int(c.overview.classes)],
@@ -167,17 +188,27 @@ function ReportView({ report }: { report: Report }) {
         <Section title="2. Результаты по темам" kind="observation">
           <div className="overflow-x-auto">
             <Table>
-              <TableHeader><TableRow><TableHead>Тема</TableHead><TableHead className="text-right">Освоение</TableHead><TableHead className="text-right">Учеников</TableHead><TableHead className="text-right">Прирост</TableHead><TableHead>Статус</TableHead></TableRow></TableHeader>
+              <TableHeader><TableRow><TableHead>Тема</TableHead><TableHead className="text-right">Освоение</TableHead>
+                <TableHead className="text-right">Учеников</TableHead><TableHead>Изменение от входной диагностики</TableHead>
+                <TableHead>Статус темы</TableHead></TableRow></TableHeader>
               <TableBody>
-                {c.topics.map((tp) => (
-                  <TableRow key={tp.topic_id}>
-                    <TableCell className="whitespace-normal">{tp.name}</TableCell>
-                    <TableCell className="text-right tabular-nums">{pct(tp.mastery)}</TableCell>
-                    <TableCell className="text-right tabular-nums">{tp.student_count}</TableCell>
-                    <TableCell className="text-right tabular-nums">{tp.gain ? signed(tp.gain.mean_gain, " п.п.") : "—"}</TableCell>
-                    <TableCell><StatusBadge status={tp.status} /></TableCell>
-                  </TableRow>
-                ))}
+                {c.topics.map((tp) => {
+                  const g = summarizeGain(tp.gain);
+                  return (
+                    <TableRow key={tp.topic_id}>
+                      <TableCell className="whitespace-normal">{tp.name}</TableCell>
+                      <TableCell className="text-right tabular-nums">{pct(tp.mastery)}</TableCell>
+                      <TableCell className="text-right tabular-nums">{tp.student_count}</TableCell>
+                      <TableCell className="min-w-52 whitespace-normal" data-testid={`report-gain-${tp.code}`}>
+                        {g.estimate && <b className={cn("tabular-nums", g.tone === "negative" && "text-danger")}>{g.estimate}</b>}
+                        {g.estimate && " · "}<span>{g.status}</span>
+                        {g.detail && <div className="text-xs text-muted-foreground tabular-nums">{g.detail}</div>}
+                        {g.note && <div className="text-xs text-muted-foreground">{g.note}</div>}
+                      </TableCell>
+                      <TableCell><StatusBadge status={tp.status} /></TableCell>
+                    </TableRow>
+                  );
+                })}
               </TableBody>
             </Table>
           </div>
@@ -201,7 +232,7 @@ function ReportView({ report }: { report: Report }) {
           ) : <p className="text-muted-foreground" data-testid="plan-scope">{c.optimizer_scope_note ?? "Рекомендация для этих фильтров не сформирована."}</p>}
         </Section>
         {c.insights && (
-          <Section title={`5. Пояснения (${c.insights.mode === "llm" ? "языковая модель, проверено" : "детерминированный режим"})`} kind="observation">
+          <Section title={`5. Пояснения (${c.insights.mode === "llm" ? "языковая модель, числа сверены с расчётами" : "по шаблонам, детерминированный режим"})`} kind="observation">
             <p>{c.insights.payload.summary}</p>
           </Section>
         )}

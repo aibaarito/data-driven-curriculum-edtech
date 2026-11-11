@@ -43,7 +43,7 @@ All FKs declared with ON DELETE rules; indexes on every FK and on (assessment, t
 |---|---|---|
 | GET | `/health` | DB connectivity, LLM enabled flag |
 | GET | `/meta` | Subjects, grades, classes, textbooks, date range, synthetic flag |
-| GET | `/analytics/overview` · `/analytics/topics` · `/analytics/textbooks` | Filters: `subject_id, grade, class_id, textbook_id, date_from, date_to` |
+| GET | `/analytics/overview` · `/analytics/topics` · `/analytics/textbooks` | Filters: `subject_id, grade, class_id, textbook_id, date_from, date_to`. Overview trend points carry `grades` and `comparison_group` (separate observations, never one trajectory) |
 | POST | `/imports/preview` | Multipart upload → validation report + staged batch |
 | POST | `/imports/{id}/commit` · `/imports/{id}/discard` | Commit (only if no errors; re-checks conflicts) / discard |
 | GET | `/imports` · `/imports/schema` · `/imports/template.csv` · `/imports/demo-dataset.csv` | History, schema, templates |
@@ -53,8 +53,8 @@ All FKs declared with ON DELETE rules; indexes on every FK and on (assessment, t
 | POST | `/optimizer/evaluate` | Check a manual allocation: hard `constraints` + advisory `policy_checks` |
 | POST | `/optimizer/runs/{id}/decision` | `accept` / `reject` |
 | GET | `/optimizer/runs` | History |
-| POST | `/ai/insights` | Grounded explanation (LLM or deterministic) |
-| POST/GET/DELETE | `/reports`, `/reports/{id}`, `/reports/{id}/pdf` | Create, list, view, export, delete |
+| POST | `/ai/insights` | Grounded explanation (LLM or deterministic); `fallback_kind` = `not_configured` / `rejected` / `provider_error`, technical cause in `fallback_detail` |
+| POST/GET/DELETE | `/reports`, `/reports/{id}`, `/reports/{id}/pdf` | Create, list, view, export, delete. Default title from the stored scope; `discussion` (observation / recommendation / limitation) is derived from the stored snapshot only |
 | GET/PUT | `/settings` | Analysis thresholds (validated) and LLM status |
 | POST | `/admin/reset` | Delete all data; only with `ENABLE_DATA_RESET=true`, header `X-Admin-Token`, body `{"confirm": "УДАЛИТЬ"}` |
 | GET | `/admin/integrity` | Read-only invariant report (legacy data, stale previews) |

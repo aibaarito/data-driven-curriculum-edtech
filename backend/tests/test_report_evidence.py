@@ -33,7 +33,7 @@ def test_class_pdf_displays_the_scoped_api_metrics_units_and_honest_ai_mode(clie
     assert "Всего часов: 82.0" in flat
     assert "п.п." in flat
     # The narrow table heading wraps within this word when rendered; extraction retains that space.
-    assert re.search(r"Освоен\s*ие\s*%", flat)
+    assert re.search(r"Освоен\s*ие,?\s*%", flat)
     assert "детерминированный режим" in flat
     assert "синтетических демонстрационных данных" in flat and "не гарантирован" in flat
     assert cls["name"] in flat and "План часов для 7-й параллели" in flat

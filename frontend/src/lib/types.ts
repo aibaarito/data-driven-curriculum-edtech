@@ -40,7 +40,8 @@ export interface AnalysisSettings {
 export type GainDirection = "increase" | "decline" | "inconclusive" | "insufficient";
 
 export interface Gain {
-  direction: GainDirection;
+  /** Optional only for older stored report snapshots; current API responses always include it. */
+  direction?: GainDirection;
   ci_level: number;
   family_size: number;
   p_value_adjusted: number | null;
@@ -95,6 +96,9 @@ export interface TrendPoint {
   mastery: number | null;
   students: number;
   topics: number;
+  /** Grades whose pupils sat this assessment (absent in report snapshots created before this field existed). */
+  grades?: number[];
+  comparison_group?: string | null;
 }
 
 export interface TopicTrendPoint {
@@ -351,6 +355,10 @@ export interface InsightsResponse {
   facts: Record<string, number | string>;
   attempts: number;
   fallback_reason: string | null;
+  /** not_configured | rejected | provider_error; null for model output (absent from older stored reports). */
+  fallback_kind?: "not_configured" | "rejected" | "provider_error" | null;
+  /** Technical detail (exception class) for support; never shown as the primary message. */
+  fallback_detail?: string | null;
   optimizer_status: "proposed" | "accepted" | "rejected" | null;
 }
 
@@ -362,7 +370,15 @@ export interface ReportListItem {
   labels: Record<string, string> | null;
 }
 
+export interface DiscussionPoint {
+  kind: "observation" | "recommendation" | "limitation";
+  text: string;
+  topic_id?: string;
+}
+
 export interface Report extends Omit<ReportListItem, "labels"> {
+  /** Derived by the server from the stored snapshot only. */
+  discussion?: DiscussionPoint[];
   content: {
     filter_labels: Record<string, string>;
     synthetic: boolean;

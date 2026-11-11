@@ -17,11 +17,12 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { useApi } from "@/hooks/use-api";
 import { api, ApiError, uploadFile } from "@/lib/api";
 import { dateTime, int } from "@/lib/format";
+import { columnLabel, groupByRow, issueTitle, summarizeErrors } from "@/lib/import-issues";
 import { MAX_UPLOAD_MB, uploadSchema, type UploadForm } from "@/lib/schemas";
 import type { ImportBatch, ImportPreview, ValidationIssue } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-const PAGE = 25;
+const PAGE = 20;
 const SCHEMA_DOC: [string, string, boolean][] = [
   ["student_id", "Анонимный идентификатор ученика (без ФИО)", true],
   ["grade", "Параллель, 1–12", true],
@@ -121,13 +122,13 @@ export function ImportView() {
               <label
                 htmlFor="file"
                 className={cn(
-                  "flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed px-6 py-10 text-center transition-colors hover:border-primary/50 hover:bg-accent/40",
+                  "flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed px-6 py-10 text-center transition-colors hover:border-primary/50 hover:bg-accent/40 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring",
                   fileError && "border-danger/50",
                 )}
               >
                 <UploadCloud className="mb-2 size-8 text-primary" aria-hidden />
                 <span className="font-medium">{selectedFile?.name ?? "Выберите файл .csv или .xlsx"}</span>
-                <span className="mt-1 text-xs text-muted-foreground">Нажмите, чтобы выбрать файл</span>
+                <span id="file-hint" className="mt-1 text-xs text-muted-foreground">Нажмите, чтобы выбрать файл</span>
                 <input
                   id="file"
                   type="file"
@@ -135,13 +136,15 @@ export function ImportView() {
                   className="sr-only"
                   data-testid="file-input"
                   disabled={busy}
+                  aria-invalid={!!fileError}
+                  aria-describedby={fileError ? "file-error" : "file-hint"}
                   onChange={(e) => {
                     const f = e.target.files?.[0];
                     if (f) form.setValue("file", f, { shouldValidate: true });
                   }}
                 />
               </label>
-              {fileError && <p className="text-sm text-danger" role="alert">{fileError}</p>}
+              {fileError && <p id="file-error" className="text-sm text-danger" role="alert">{fileError}</p>}
               {phase === "uploading" && (
                 <div className="space-y-1" aria-live="polite">
                   <Progress value={progress} />
@@ -261,8 +264,15 @@ function PreviewPanel({ preview, page, setPage, phase, onCommit, onDiscard }: {
   onDiscard: () => void;
 }) {
   const s = preview.summary;
-  const pages = Math.max(1, Math.ceil(preview.errors.length / PAGE));
-  const errors = preview.errors.slice(page * PAGE, page * PAGE + PAGE);
+  const groups = useMemo(() => groupByRow(preview.errors), [preview]);
+  const warningGroups = useMemo(() => {
+    const m = new Map<string, ValidationIssue[]>();
+    for (const w of preview.warnings) m.set(w.code, [...(m.get(w.code) ?? []), w]);
+    return [...m.entries()];
+  }, [preview]);
+  const summary = summarizeErrors(preview);
+  const pages = Math.max(1, Math.ceil(groups.length / PAGE));
+  const shown = groups.slice(page * PAGE, page * PAGE + PAGE);
   const cols = useMemo(() => (preview.preview[0] ? Object.keys(preview.preview[0]).filter((k) => k !== "row") : []), [preview]);
   const done = phase === "done";
 
@@ -270,15 +280,26 @@ function PreviewPanel({ preview, page, setPage, phase, onCommit, onDiscard }: {
     <Card data-testid="import-preview">
       <CardHeader>
         <CardTitle className="flex flex-wrap items-center gap-2">
-          {preview.ok ? <CheckCircle2 className="size-5 text-success" /> : <XCircle className="size-5 text-danger" />}
-          {preview.ok ? "Файл прошёл проверку" : "В файле есть ошибки — импорт невозможен"}
+          {preview.ok ? <CheckCircle2 className="size-5 text-success" aria-hidden /> : <XCircle className="size-5 text-danger" aria-hidden />}
+          {preview.ok ? "Файл прошёл проверку" : "В файле есть ошибки — данные ещё не импортированы"}
         </CardTitle>
         <CardDescription>
-          {preview.filename}: {int(preview.total_rows)} строк, ошибок {int(preview.error_count)}, предупреждений {int(preview.warning_count)}.
-          {!preview.ok && " Данные не исправляются автоматически: исправьте файл и загрузите его снова."}
+          {preview.filename}: {int(preview.total_rows)} строк данных. {preview.ok
+            ? "Ничего не сохранено до подтверждения."
+            : "Данные не исправляются автоматически."}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-5">
+        {!preview.ok && (
+          <div role="alert" className="rounded-lg border border-danger/30 bg-danger/5 p-3" data-testid="import-error-summary">
+            <p className="font-medium">{summary.headline}</p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Исправьте указанные строки в исходной таблице и проверьте файл снова. Значения идентификаторов не показываются,
+              чтобы не раскрывать возможные персональные данные.
+            </p>
+          </div>
+        )}
+
         {preview.ok && (
           <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4 lg:grid-cols-7">
             {[
@@ -294,39 +315,81 @@ function PreviewPanel({ preview, page, setPage, phase, onCommit, onDiscard }: {
           </div>
         )}
 
-        {Object.keys(preview.error_counts).length > 0 && (
-          <div className="flex flex-wrap gap-2">
-            {Object.entries(preview.error_counts).map(([code, n]) => (
-              <Badge key={code} variant="destructive">{code}: {n}</Badge>
-            ))}
-          </div>
-        )}
-
-        {preview.warnings.length > 0 && (
-          <Alert className="border-warning/50 bg-warning/10">
-            <AlertTriangle className="size-4 text-amber-600" />
-            <AlertTitle>Предупреждения</AlertTitle>
+        {warningGroups.length > 0 && (
+          <Alert className="border-warning/50 bg-warning/10" data-testid="import-warnings">
+            <AlertTriangle className="size-4 text-amber-700" aria-hidden />
+            <AlertTitle>Предупреждения — не блокируют импорт ({int(preview.warning_count)})</AlertTitle>
             <AlertDescription>
-              <ul className="list-disc pl-4">
-                {preview.warnings.map((w, i) => <li key={i}>{w.message}</li>)}
+              <ul className="w-full space-y-2">
+                {warningGroups.map(([code, list]) => (
+                  <li key={code}>
+                    <div className="font-medium text-foreground">{issueTitle(code)}{list.length > 1 ? ` · ${list.length}` : ""}</div>
+                    <ul className="list-disc pl-4">
+                      {list.slice(0, 10).map((w, i) => (
+                        <li key={i}>{w.row !== null && `Строка ${w.row}: `}{w.message}</li>
+                      ))}
+                      {list.length > 10 && <li>…и ещё {list.length - 10}</li>}
+                    </ul>
+                  </li>
+                ))}
               </ul>
             </AlertDescription>
           </Alert>
         )}
 
-        {preview.errors.length > 0 && (
+        {groups.length > 0 && (
           <div>
-            <IssueTable issues={errors} />
+            <h3 className="mb-2 flex items-center gap-2 text-sm font-medium">
+              Что исправить <Badge variant="destructive">блокирует импорт</Badge>
+            </h3>
+            <ul className="space-y-2" data-testid="issue-groups">
+              {shown.map((gr) => (
+                <li key={String(gr.row)} className="rounded-lg border p-3 text-sm">
+                  <div className="mb-1 font-semibold">{gr.row === null ? "Файл целиком" : `Строка ${gr.row}`}
+                    {gr.issues.length > 1 && <span className="font-normal text-muted-foreground"> · проблем: {gr.issues.length}</span>}
+                  </div>
+                  <ul className="space-y-1.5">
+                    {gr.issues.map((e, i) => {
+                      const col = columnLabel(e.column);
+                      return (
+                        <li key={i}>
+                          <span className="font-medium">{issueTitle(e.code)}</span>
+                          {col && <> · {col.label} <code className="rounded bg-muted px-1 text-xs">{col.header}</code></>}
+                          <div className="text-muted-foreground">{e.message}</div>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </li>
+              ))}
+            </ul>
             {pages > 1 && (
               <div className="mt-2 flex items-center justify-between text-sm text-muted-foreground">
-                <span>Показаны {page * PAGE + 1}–{Math.min(preview.errors.length, (page + 1) * PAGE)} из {preview.errors.length}
-                  {preview.error_count > preview.errors.length && ` (всего ошибок ${preview.error_count})`}</span>
+                <span>Строки {page * PAGE + 1}–{Math.min(groups.length, (page + 1) * PAGE)} из {groups.length} в списке</span>
                 <span className="flex gap-2">
                   <Button size="sm" variant="outline" disabled={page === 0} onClick={() => setPage(page - 1)}>Назад</Button>
                   <Button size="sm" variant="outline" disabled={page >= pages - 1} onClick={() => setPage(page + 1)}>Далее</Button>
                 </span>
               </div>
             )}
+            {!summary.rowsExact && (
+              <p className="mt-2 text-xs text-muted-foreground">
+                Показаны первые {preview.errors.length} из {int(preview.error_count)} ошибок; остальные строки появятся после исправления.
+              </p>
+            )}
+            <details className="mt-3 rounded-lg border text-sm">
+              <summary className="cursor-pointer rounded-lg px-3 py-2 outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                Технические сведения (коды проверок)
+              </summary>
+              <div className="flex flex-wrap gap-2 px-3 pb-3" data-testid="error-codes">
+                {Object.entries(preview.error_counts).map(([code, n]) => (
+                  <Badge key={code} variant="outline" className="font-mono text-[11px]">{code}: {n}</Badge>
+                ))}
+                {Object.entries(preview.warning_counts).map(([code, n]) => (
+                  <Badge key={code} variant="outline" className="font-mono text-[11px] text-muted-foreground">{code}: {n} (предупр.)</Badge>
+                ))}
+              </div>
+            </details>
           </div>
         )}
 
@@ -355,37 +418,18 @@ function PreviewPanel({ preview, page, setPage, phase, onCommit, onDiscard }: {
         )}
 
         {!done && (
-          <div className="flex flex-wrap gap-2 border-t pt-4">
+          <div className="flex flex-wrap items-center gap-2 border-t pt-4">
             <Button onClick={onCommit} disabled={!preview.ok || phase === "committing"} data-testid="commit-button">
-              {phase === "committing" && <Loader2 className="size-4 animate-spin" />}
+              {phase === "committing" && <Loader2 className="size-4 animate-spin" aria-hidden />}
               Подтвердить импорт ({int(preview.valid_rows)} строк)
             </Button>
             <Button variant="outline" onClick={onDiscard} disabled={phase === "committing"}>Отменить</Button>
+            {preview.ok && preview.warning_count > 0 && (
+              <span className="text-xs text-muted-foreground">Подтверждая, вы принимаете изменения из предупреждений выше.</span>
+            )}
           </div>
         )}
       </CardContent>
     </Card>
-  );
-}
-
-function IssueTable({ issues }: { issues: ValidationIssue[] }) {
-  return (
-    <div className="overflow-auto rounded-lg border">
-      <Table>
-        <TableHeader>
-          <TableRow><TableHead className="w-20">Строка</TableHead><TableHead className="w-36">Столбец</TableHead><TableHead className="w-44">Код</TableHead><TableHead>Сообщение</TableHead></TableRow>
-        </TableHeader>
-        <TableBody>
-          {issues.map((e, i) => (
-            <TableRow key={i}>
-              <TableCell>{e.row ?? "—"}</TableCell>
-              <TableCell className="font-mono text-xs">{e.column ?? "—"}</TableCell>
-              <TableCell><Badge variant="outline" className="font-mono text-[11px]">{e.code}</Badge></TableCell>
-              <TableCell className="whitespace-normal text-sm">{e.message}</TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    </div>
   );
 }

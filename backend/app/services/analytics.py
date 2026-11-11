@@ -365,9 +365,15 @@ def overall_trend(df: pd.DataFrame) -> list[dict[str, Any]]:
         score=("score", "sum"), max_score=("max_score", "sum"), students=("student_id", "nunique"),
         topics=("topic_id", "nunique"))
     g = g[g["max_score"] > 0].sort_values(["assessment_date", "assessment_code"])
+    # Population metadata: which grades sat each assessment and its pre/post comparison group. Different
+    # assessments are separate observations (different pupils and/or content), not one longitudinal series.
+    grades = df.groupby("assessment_id")["grade"].agg(lambda s: sorted({int(x) for x in s}))
+    groups = df.groupby("assessment_id")["comparison_group"].first()
     return [
         {"assessment": r.assessment_code, "date": r.assessment_date.isoformat(), "kind": r.kind,
-         "mastery": r1(r.score / r.max_score * 100), "students": int(r.students), "topics": int(r.topics)}
+         "mastery": r1(r.score / r.max_score * 100), "students": int(r.students), "topics": int(r.topics),
+         "grades": grades.get(r.assessment_id, []),
+         "comparison_group": groups.get(r.assessment_id) if isinstance(groups.get(r.assessment_id), str) else None}
         for r in g.itertuples()
     ]
 

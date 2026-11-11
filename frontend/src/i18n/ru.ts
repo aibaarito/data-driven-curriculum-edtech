@@ -30,10 +30,10 @@ export const ru = {
     grade: "Параллель",
     class: "Класс",
     textbook: "Учебник",
-    from: "С",
-    to: "По",
+    from: "Дата оценивания: с",
+    to: "Дата оценивания: по",
     all: "Все",
-    reset: "Сбросить",
+    reset: "Сбросить фильтры",
     gradeN: (g: number) => `${g} класс`,
   },
   states: {

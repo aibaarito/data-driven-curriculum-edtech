@@ -4,7 +4,7 @@ import { Check, CircleAlert, Loader2, Lock, Play, Save, ShieldCheck, ThumbsDown,
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 
-import { GroupedBars } from "@/components/charts";
+import { GroupedBars, NEUTRAL_MARK, PALETTE } from "@/components/charts";
 import { useFilters } from "@/components/filter-bar";
 import { useMeta } from "@/components/meta-provider";
 import { RequireData } from "@/components/page-frame";
@@ -24,6 +24,8 @@ import { t } from "@/i18n";
 import { api, ApiError } from "@/lib/api";
 import { dateTime, num, pct, signed } from "@/lib/format";
 import { topicConstraintSchema, totalHoursSchema } from "@/lib/schemas";
+import { DIRECTION_LABEL } from "@/lib/gain";
+import { inapplicableFilters } from "@/lib/scope";
 import type { ConstraintCheck, OptimizerInputs, OptimizerRun, RunListItem } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -54,46 +56,60 @@ export function OptimizerView() {
 
 function Scope() {
   const { data: meta } = useMeta();
-  const [f] = useFilters();
+  const [f, update] = useFilters();
   const subjects = meta?.subjects ?? [];
   const grades = meta?.grades ?? [];
-  // URL params may be stale (e.g. after data was re-imported): only accept values that exist.
-  const [subjectId, setSubjectId] = useState<number | undefined>(
-    subjects.some((s) => s.id === f.subject_id) ? f.subject_id : subjects[0]?.id);
-  const [grade, setGrade] = useState<number | undefined>(
-    f.grade !== undefined && grades.includes(f.grade) ? f.grade : grades[0]);
+  // The plan covers one subject and one grade. URL values that no longer exist are not used silently.
+  const urlSubjectValid = subjects.some((x) => x.id === f.subject_id);
+  const urlGradeValid = f.grade !== undefined && grades.includes(f.grade);
+  const subjectId = urlSubjectValid ? f.subject_id : subjects[0]?.id;
+  const grade = urlGradeValid ? f.grade : grades[0];
+  const subjectName = subjects.find((x) => x.id === subjectId)?.name ?? "";
+  const notApplied = inapplicableFilters("/optimizer", f, meta);
 
   return (
     <>
-      <div className="mb-6 grid grid-cols-2 gap-3 rounded-xl border bg-card/60 p-3 sm:max-w-md">
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="o-subject" className="text-xs text-muted-foreground">{t.filters.subject}</Label>
-          <Select value={subjectId ? String(subjectId) : undefined} onValueChange={(v) => setSubjectId(Number(v))}>
-            <SelectTrigger id="o-subject" className="w-full bg-card"><SelectValue placeholder="Выберите" /></SelectTrigger>
-            <SelectContent>{subjects.map((s) => <SelectItem key={s.id} value={String(s.id)}>{s.name}</SelectItem>)}</SelectContent>
-          </Select>
+      <section aria-label="Параметры плана" className="mb-6 space-y-3 rounded-xl border bg-card/60 p-3">
+        <div className="grid grid-cols-2 gap-3 sm:max-w-md">
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="o-subject" className="text-xs text-muted-foreground">{t.filters.subject}</Label>
+            <Select value={subjectId ? String(subjectId) : undefined} onValueChange={(v) => update({ subject_id: Number(v), textbook_id: undefined })}>
+              <SelectTrigger id="o-subject" className="w-full bg-card"><SelectValue placeholder="Выберите" /></SelectTrigger>
+              <SelectContent>{subjects.map((x) => <SelectItem key={x.id} value={String(x.id)}>{x.name}</SelectItem>)}</SelectContent>
+            </Select>
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="o-grade" className="text-xs text-muted-foreground">{t.filters.grade}</Label>
+            <Select value={grade ? String(grade) : undefined} onValueChange={(v) => update({ grade: Number(v), class_id: undefined })}>
+              <SelectTrigger id="o-grade" className="w-full bg-card"><SelectValue placeholder="Выберите" /></SelectTrigger>
+              <SelectContent>{grades.map((g) => <SelectItem key={g} value={String(g)}>{t.filters.gradeN(g)}</SelectItem>)}</SelectContent>
+            </Select>
+          </div>
         </div>
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="o-grade" className="text-xs text-muted-foreground">{t.filters.grade}</Label>
-          <Select value={grade ? String(grade) : undefined} onValueChange={(v) => setGrade(Number(v))}>
-            <SelectTrigger id="o-grade" className="w-full bg-card"><SelectValue placeholder="Выберите" /></SelectTrigger>
-            <SelectContent>{grades.map((g) => <SelectItem key={g} value={String(g)}>{t.filters.gradeN(g)}</SelectItem>)}</SelectContent>
-          </Select>
-        </div>
-      </div>
-      {subjectId && grade ? <Optimizer key={`${subjectId}-${grade}`} subjectId={subjectId} grade={grade} /> :
+        {subjectId && grade && (
+          <p className="text-sm" data-testid="plan-scope-note">
+            План составляется для всей параллели {grade} по предмету «{subjectName}» — один план для всех её классов.
+            {notApplied.length > 0 && <> Здесь не применяется: {notApplied.join(", ")}; фильтр сохранён для других разделов.</>}
+            {!urlSubjectValid && f.subject_id !== undefined && " Предмет из фильтра не найден — выбран первый доступный."}
+            {!urlGradeValid && f.grade !== undefined && " Параллель из фильтра не найдена — выбрана первая доступная."}
+            {f.subject_id === undefined || f.grade === undefined ? " Предмет или параллель не заданы фильтром — выбраны первые доступные." : ""}
+          </p>
+        )}
+      </section>
+      {subjectId && grade ? <Optimizer key={`${subjectId}-${grade}`} subjectId={subjectId} grade={grade} subjectName={subjectName} /> :
         <p className="text-sm text-muted-foreground">Выберите предмет и параллель.</p>}
     </>
   );
 }
 
-function Optimizer({ subjectId, grade }: { subjectId: number; grade: number }) {
+function Optimizer({ subjectId, grade, subjectName }: { subjectId: number; grade: number; subjectName: string }) {
   const inputs = useApi<OptimizerInputs>(`/api/optimizer/inputs?subject_id=${subjectId}&grade=${grade}`);
   if (inputs.error) return <ErrorState error={inputs.error} onRetry={inputs.reload} />;
   if (inputs.loading || !inputs.data) return <LoadingState rows={2} />;
   if (inputs.data.topics.length === 0) return <p className="text-sm text-muted-foreground">Для выбранной параллели нет тем.</p>;
   const version = inputs.data.topics.map((x) => `${x.topic_id}:${x.min_hours}:${x.max_hours}:${x.priority}`).join("|");
-  return <OptimizerForm key={version} data={inputs.data} reloadInputs={inputs.reload} subjectId={subjectId} grade={grade} />;
+  return <OptimizerForm key={version} data={inputs.data} reloadInputs={inputs.reload} subjectId={subjectId} grade={grade}
+    subjectName={subjectName} />;
 }
 
 function initialEdits(data: OptimizerInputs): Record<number, Edit> {
@@ -102,8 +118,8 @@ function initialEdits(data: OptimizerInputs): Record<number, Edit> {
   return e;
 }
 
-function OptimizerForm({ data, reloadInputs, subjectId, grade }: {
-  data: OptimizerInputs; reloadInputs: () => void; subjectId: number; grade: number;
+function OptimizerForm({ data, reloadInputs, subjectId, grade, subjectName }: {
+  data: OptimizerInputs; reloadInputs: () => void; subjectId: number; grade: number; subjectName: string;
 }) {
   const runs = useApi<RunListItem[]>(`/api/optimizer/runs?subject_id=${subjectId}&grade=${grade}`);
   const [edits, setEdits] = useState<Record<number, Edit>>(() => initialEdits(data));
@@ -111,6 +127,8 @@ function OptimizerForm({ data, reloadInputs, subjectId, grade }: {
   const [target, setTarget] = useState<string>(String(data.target_mastery));
   const [maxChange, setMaxChange] = useState<string>(String(data.max_change_pct));
   const [run, setRun] = useState<OptimizerRun | null>(null);
+  /** Where the displayed saved recommendation came from: just generated, or opened from history. */
+  const [runSource, setRunSource] = useState<{ kind: "generated" } | { kind: "opened"; createdAt: string }>({ kind: "generated" });
   const [runError, setRunError] = useState<ApiError | null>(null);
   const [busy, setBusy] = useState(false);
   const [allowRelax, setAllowRelax] = useState(false);
@@ -150,6 +168,7 @@ function OptimizerForm({ data, reloadInputs, subjectId, grade }: {
       };
       const r = await api.post<OptimizerRun>("/api/optimizer/run", body);
       setRun(r);
+      setRunSource({ kind: "generated" });
       setCustom(Object.fromEntries(r.rows.map((x) => [x.topic_id, String(x.proposed_hours)])));
       runs.reload();
       toast.success("Рекомендация сформирована");
@@ -188,7 +207,7 @@ function OptimizerForm({ data, reloadInputs, subjectId, grade }: {
       const r = await api.post<{ status: OptimizerRun["status"] }>(`/api/optimizer/runs/${run.run_id}/decision`, { decision });
       setRun({ ...run, status: r.status });
       runs.reload();
-      toast.success(decision === "accept" ? "Распределение принято" : "Рекомендация отклонена");
+      toast.success(decision === "accept" ? `Рекомендация системы #${run.run_id} принята` : `Рекомендация #${run.run_id} отклонена`);
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : "Ошибка");
     }
@@ -226,9 +245,9 @@ function OptimizerForm({ data, reloadInputs, subjectId, grade }: {
     <div className="space-y-6">
       <Card>
         <CardHeader>
-          <CardTitle>Исходные данные и ограничения</CardTitle>
+          <CardTitle>Новая рекомендация: исходные данные и ограничения</CardTitle>
           <CardDescription>
-            Текущие часы — медиана по классам параллели (единый план параллели). Освоение рассчитано по данным. Можно изменить часы, границы,
+            Эта форма — черновик для формирования новой рекомендации; она не изменяет сохранённые рекомендации. Текущие часы — медиана по классам параллели (единый план параллели). Освоение рассчитано по данным. Можно изменить часы, границы,
             приоритет и зафиксировать темы. Сумма текущих часов: {num(currentSum, 2)} ч.
           </CardDescription>
           <CardAction>
@@ -246,7 +265,7 @@ function OptimizerForm({ data, reloadInputs, subjectId, grade }: {
             <Table data-testid="optimizer-inputs">
               <TableHeader>
                 <TableRow>
-                  <TableHead>Тема</TableHead><TableHead>Освоение</TableHead><TableHead className="text-right">Прирост</TableHead><TableHead className="w-24">Часы</TableHead>
+                  <TableHead>Тема</TableHead><TableHead>Освоение</TableHead><TableHead>Изменение от входной диагностики</TableHead><TableHead className="w-24">Часы</TableHead>
                   <TableHead className="w-20">Мин.</TableHead><TableHead className="w-20">Макс.</TableHead>
                   <TableHead className="w-24">Приоритет</TableHead><TableHead className="w-20 text-center">Фикс.</TableHead>
                 </TableRow>
@@ -260,21 +279,25 @@ function OptimizerForm({ data, reloadInputs, subjectId, grade }: {
                       <TableCell className="whitespace-normal">
                         <div className="font-medium">{tp.name}</div>
                         {tp.prerequisites.length > 0 && <div className="text-xs text-muted-foreground">после: {tp.prerequisites.map((p) => names[p] ?? p).join(", ")}</div>}
-                        {rowErrors[tp.topic_id] && <div className="text-xs text-danger">{rowErrors[tp.topic_id]}</div>}
+                        {rowErrors[tp.topic_id] && <div id={`row-error-${tp.topic_id}`} className="text-xs text-danger">{rowErrors[tp.topic_id]}</div>}
                       </TableCell>
                       <TableCell><div className="flex items-center gap-2"><span className="tabular-nums">{pct(tp.mastery)}</span><StatusBadge status={tp.status} /></div></TableCell>
-                      <TableCell className={cn("text-right tabular-nums", tp.gain_significant === false && "text-danger")}>
-                        {tp.gain === null ? "—" : tp.gain_direction === "insufficient" ? "мало пар" :
-                          `${signed(tp.gain)}${tp.gain_direction === "inconclusive" ? " (н.у.)" : tp.gain_direction === "decline" ? " ↓" : ""}`}
+                      <TableCell className={cn("min-w-36 whitespace-normal text-sm", tp.gain_direction === "decline" && "text-danger")}>
+                        {tp.gain === null || tp.gain_direction === null ? "не оценивалось"
+                          : tp.gain_direction === "insufficient" ? DIRECTION_LABEL.insufficient
+                            : <><b className="tabular-nums">{signed(tp.gain, " п.п.")}</b> · {DIRECTION_LABEL[tp.gain_direction]}</>}
                       </TableCell>
                       <TableCell>
-                        <NumIn label={`Часы: ${tp.name}`} value={e.current_hours} onChange={(v) => setEdit(tp.topic_id, { current_hours: v })} />
+                        <NumIn label={`Часы: ${tp.name}`} value={e.current_hours} onChange={(v) => setEdit(tp.topic_id, { current_hours: v })}
+                          errorId={rowErrors[tp.topic_id] ? `row-error-${tp.topic_id}` : undefined} />
                         {tp.class_hours_min !== null && tp.class_hours_min !== tp.class_hours_max && (
                           <div className="mt-0.5 text-[11px] text-muted-foreground">классы: {num(tp.class_hours_min)}–{num(tp.class_hours_max)} ч</div>
                         )}
                       </TableCell>
-                      <TableCell><NumIn label={`Минимум: ${tp.name}`} value={e.min_hours} onChange={(v) => setEdit(tp.topic_id, { min_hours: v })} /></TableCell>
-                      <TableCell><NumIn label={`Максимум: ${tp.name}`} value={e.max_hours} onChange={(v) => setEdit(tp.topic_id, { max_hours: v })} /></TableCell>
+                      <TableCell><NumIn label={`Минимум: ${tp.name}`} value={e.min_hours} onChange={(v) => setEdit(tp.topic_id, { min_hours: v })}
+                        errorId={rowErrors[tp.topic_id] ? `row-error-${tp.topic_id}` : undefined} /></TableCell>
+                      <TableCell><NumIn label={`Максимум: ${tp.name}`} value={e.max_hours} onChange={(v) => setEdit(tp.topic_id, { max_hours: v })}
+                        errorId={rowErrors[tp.topic_id] ? `row-error-${tp.topic_id}` : undefined} /></TableCell>
                       <TableCell>
                         <Select value={String(e.priority)} onValueChange={(v) => setEdit(tp.topic_id, { priority: Number(v) })}>
                           <SelectTrigger className="h-8 w-20" aria-label={`Приоритет: ${tp.name}`}><SelectValue /></SelectTrigger>
@@ -316,8 +339,13 @@ function OptimizerForm({ data, reloadInputs, subjectId, grade }: {
         </CardContent>
       </Card>
 
-      {run && <RunResult run={run} chartData={chartData} custom={custom} setCustom={setCustom} customChecks={customChecks}
-        onEvaluate={evaluateCustom} onDecide={decide} />}
+      {run && (
+        <>
+          <RunResult run={run} source={runSource} subjectName={subjectName} grade={grade} formTotal={total} onDecide={decide} />
+          <ManualPanel run={run} chartData={chartData} custom={custom} setCustom={setCustom} customChecks={customChecks}
+            onEvaluate={evaluateCustom} />
+        </>
+      )}
 
       <Card>
         <CardHeader>
@@ -332,8 +360,9 @@ function OptimizerForm({ data, reloadInputs, subjectId, grade }: {
                   <span>#{r.run_id} · {dateTime(r.created_at)} · {num(r.total_hours)} ч · изменено тем: {r.changed_topics}</span>
                   <span className="flex items-center gap-2">
                     <Badge variant={r.status === "accepted" ? "default" : "outline"}>{STATUS_RU[r.status]}</Badge>
-                    <Button size="sm" variant="ghost" onClick={() => {
+                    <Button size="sm" variant="ghost" aria-label={`Открыть рекомендацию #${r.run_id}`} onClick={() => {
                       setRun({ ...r.result, run_id: r.run_id, status: r.status });
+                      setRunSource({ kind: "opened", createdAt: r.created_at });
                       setCustom(Object.fromEntries(r.result.rows.map((x) => [x.topic_id, String(x.proposed_hours)])));
                       setCustomChecks(null);
                     }}>Открыть</Button>
@@ -348,59 +377,93 @@ function OptimizerForm({ data, reloadInputs, subjectId, grade }: {
   );
 }
 
-function RunResult({ run, chartData, custom, setCustom, customChecks, onEvaluate, onDecide }: {
+function RunResult({ run, source, subjectName, grade, formTotal, onDecide }: {
   run: OptimizerRun;
-  chartData: Record<string, string | number | null>[];
-  custom: Record<number, string>;
-  setCustom: (fn: (s: Record<number, string>) => Record<number, string>) => void;
-  customChecks: CustomChecks | null;
-  onEvaluate: () => void;
+  source: { kind: "generated" } | { kind: "opened"; createdAt: string };
+  subjectName: string;
+  grade: number;
+  formTotal: string;
   onDecide: (d: "accept" | "reject") => void;
 }) {
+  const [onlyChanged, setOnlyChanged] = useState(false);
   const series = [
-    { key: "current", name: "Сейчас", color: "#94a3b8" },
+    { key: "current", name: "Сейчас", color: NEUTRAL_MARK },
     { key: "proposed", name: "Рекомендация", color: "#4f46e5" },
-    ...(customChecks ? [{ key: "custom", name: "Ручной вариант", color: "#0ea5a4" }] : []),
   ];
+  const chartData = run.rows.map((r) => ({ label: r.name, current: r.current_hours, proposed: r.proposed_hours }));
   const allOk = run.constraints.every((c) => c.ok);
+  const changed = run.rows.filter((r) => r.delta !== 0);
+  const ordered = [...changed, ...run.rows.filter((r) => r.delta === 0)];
+  const rows = onlyChanged ? changed : ordered;
+  const formDiffers = Number(formTotal.replace(",", ".")) !== run.total_hours;
+  const decisionId = `decision-${run.run_id}`;
   return (
     <div className="space-y-6" data-testid="optimizer-result">
-      <Card>
+      <Card className="border-primary/30">
         <CardHeader>
           <CardTitle className="flex flex-wrap items-center gap-2">
-            Рекомендация #{run.run_id} <KindTag kind="recommendation" />
+            Сохранённая рекомендация системы #{run.run_id} <KindTag kind="recommendation" />
             <Badge variant={run.status === "accepted" ? "default" : "outline"} data-testid="run-status">{STATUS_RU[run.status]}</Badge>
           </CardTitle>
-          <CardDescription>Всего {num(run.proposed_total)} ч из {num(run.total_hours)} ч. Это рекомендация, а не прогноз результатов.</CardDescription>
-          <CardAction className="flex gap-2">
-            <Button size="sm" onClick={() => onDecide("accept")} disabled={run.status !== "proposed" || !allOk} data-testid="accept-run">
-              <ThumbsUp className="size-4" /> Принять
-            </Button>
-            <Button size="sm" variant="outline" onClick={() => onDecide("reject")} disabled={run.status !== "proposed"}>
-              <ThumbsDown className="size-4" /> Отклонить
-            </Button>
-          </CardAction>
+          <CardDescription>
+            {source.kind === "opened"
+              ? `Открыта из истории (создана ${dateTime(source.createdAt)}).`
+              : "Только что сформирована и сохранена."}
+            {formDiffers && ` Форма выше — черновик на ${formTotal} ч и не влияет на эту рекомендацию.`}
+            {" "}Это рекомендация, а не прогноз результатов.
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-5">
+          <dl className="grid grid-cols-2 gap-2 rounded-lg bg-muted/50 p-3 text-sm sm:grid-cols-3 lg:grid-cols-6" data-testid="saved-run-summary">
+            <SummaryItem k="Номер" v={`#${run.run_id}`} />
+            <SummaryItem k="Предмет" v={subjectName} />
+            <SummaryItem k="Параллель" v={`${grade} класс`} />
+            <SummaryItem k="Всего часов" v={`${num(run.proposed_total)} из ${num(run.total_hours)} ч`} />
+            <SummaryItem k="Изменено тем" v={String(changed.length)} />
+            <SummaryItem k="Ослабленные правила" v={run.relaxed_policies.length ? run.relaxed_policies.join(", ") : "нет"} />
+          </dl>
+
+          <div className="flex flex-wrap items-center gap-2 rounded-lg border p-3">
+            <p id={decisionId} className="w-full text-sm text-muted-foreground sm:w-auto sm:flex-1">
+              Решение относится только к сохранённой рекомендации #{run.run_id} ({num(run.total_hours)} ч) в таблице ниже.
+              Ручной вариант не сохраняется и не принимается.
+            </p>
+            <Button size="sm" onClick={() => onDecide("accept")} disabled={run.status !== "proposed" || !allOk}
+              data-testid="accept-run" data-run-id={run.run_id} aria-describedby={decisionId}>
+              <ThumbsUp className="size-4" aria-hidden /> Принять рекомендацию системы
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => onDecide("reject")} disabled={run.status !== "proposed"}
+              aria-describedby={decisionId}>
+              <ThumbsDown className="size-4" aria-hidden /> Отклонить
+            </Button>
+          </div>
+
           <GroupedBars data={chartData} series={series} unit="ч" height={320} />
+          <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+            <span className="text-muted-foreground">Сначала темы с изменёнными часами ({changed.length} из {run.rows.length}).</span>
+            <Button size="sm" variant="ghost" aria-pressed={onlyChanged} onClick={() => setOnlyChanged((v) => !v)}>
+              {onlyChanged ? `Показать все темы (${run.rows.length})` : "Показать только изменённые"}
+            </Button>
+          </div>
           <div className="overflow-x-auto">
             <Table data-testid="allocation-table">
+              <caption className="sr-only">Рекомендация #{run.run_id}: часы по темам и обоснование</caption>
               <TableHeader>
                 <TableRow>
                   <TableHead>Тема</TableHead><TableHead className="text-right">Сейчас</TableHead><TableHead className="text-right">Предлагается</TableHead>
-                  <TableHead className="text-right">Δ</TableHead><TableHead className="w-28">Ручной вариант</TableHead><TableHead>Обоснование</TableHead>
+                  <TableHead className="text-right">Изменение</TableHead><TableHead>Обоснование</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {run.rows.map((r) => (
-                  <TableRow key={r.topic_id}>
-                    <TableCell className="font-medium whitespace-normal">{r.locked && <Lock className="mr-1 inline size-3.5 text-muted-foreground" />}{r.name}</TableCell>
+                {rows.map((r) => (
+                  <TableRow key={r.topic_id} className={cn(r.delta === 0 && "text-muted-foreground")}>
+                    <TableCell className="font-medium whitespace-normal">
+                      {r.locked && <Lock className="mr-1 inline size-3.5 text-muted-foreground" aria-label="зафиксирована" />}{r.name}
+                    </TableCell>
                     <TableCell className="text-right tabular-nums">{num(r.current_hours, 2)}</TableCell>
                     <TableCell className="text-right font-semibold tabular-nums">{num(r.proposed_hours)}</TableCell>
-                    <TableCell className={cn("text-right tabular-nums", r.delta > 0 ? "text-emerald-700" : r.delta < 0 ? "text-danger" : "text-muted-foreground")}>{signed(r.delta)}</TableCell>
-                    <TableCell>
-                      <Input inputMode="decimal" className="h-8 w-20" aria-label={`Ручной вариант: ${r.name}`} value={custom[r.topic_id] ?? ""}
-                        onChange={(e) => setCustom((s) => ({ ...s, [r.topic_id]: e.target.value }))} />
+                    <TableCell className={cn("text-right tabular-nums", r.delta > 0 ? "text-emerald-700" : r.delta < 0 ? "text-danger" : "")}>
+                      {r.delta === 0 ? "без изменений" : `${signed(r.delta)} ч`}
                     </TableCell>
                     <TableCell className="min-w-72 whitespace-normal text-sm text-muted-foreground">{r.explanation}</TableCell>
                   </TableRow>
@@ -408,52 +471,118 @@ function RunResult({ run, chartData, custom, setCustom, customChecks, onEvaluate
               </TableBody>
             </Table>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Button variant="outline" onClick={onEvaluate} data-testid="evaluate-custom"><ShieldCheck className="size-4" /> Проверить ручной вариант</Button>
-            {customChecks && (
-              <Badge variant={customChecks.ok ? "default" : "destructive"}>
-                {customChecks.ok ? "Ручной вариант соблюдает все ограничения" : "Ручной вариант нарушает ограничения"} · сумма {num(customChecks.total, 2)} ч
-              </Badge>
-            )}
-          </div>
         </CardContent>
       </Card>
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>
-          <CardHeader><CardTitle>Проверка ограничений</CardTitle></CardHeader>
+          <CardHeader><CardTitle>Проверка рекомендации #{run.run_id}</CardTitle></CardHeader>
           <CardContent>
-            <Checks title="Жёсткие ограничения — рекомендация" checks={run.constraints} />
+            <Checks title="Жёсткие ограничения" checks={run.constraints} />
             <div className="mt-4">
               <div className="mb-2 text-sm font-medium">Правила оптимизатора</div>
               <ul className="space-y-1.5 text-sm" data-testid="policy-checks">
                 {run.policy_checks.map((p) => (
                   <li key={p.policy} className="flex items-start gap-2">
-                    {p.status === "applied" ? <Check className="mt-0.5 size-4 text-success" /> : <CircleAlert className="mt-0.5 size-4 text-amber-600" />}
+                    {p.status === "applied" ? <Check className="mt-0.5 size-4 text-success" aria-hidden /> : <CircleAlert className="mt-0.5 size-4 text-amber-700" aria-hidden />}
                     <span>{p.name} <span className="text-muted-foreground">— {p.status === "applied" ? "соблюдено" :
                       `ослаблено по запросу${p.affected_topics.length ? `: ${p.affected_topics.join(", ")}` : ""}`}</span></span>
                   </li>
                 ))}
               </ul>
             </div>
-            {customChecks && (
-              <div className="mt-4 space-y-3">
-                <Checks title="Жёсткие ограничения — ручной вариант" checks={customChecks.constraints} />
-                <Checks title="Правила — ручной вариант (рекомендательные)" checks={customChecks.policy_checks.map((p) => ({
-                  name: p.name, ok: p.ok, detail: p.ok ? "соблюдено" : `нарушено: ${p.affected_topics.join(", ")}` }))} />
-              </div>
-            )}
           </CardContent>
         </Card>
         <Card>
           <CardHeader><CardTitle>Предупреждения и метод</CardTitle></CardHeader>
           <CardContent className="space-y-3 text-sm">
-            <ul className="space-y-2">{run.warnings.map((w) => <li key={w} className="flex gap-2"><CircleAlert className="mt-0.5 size-4 shrink-0 text-amber-600" />{w}</li>)}</ul>
+            <ul className="space-y-2">{run.warnings.map((w) => <li key={w} className="flex gap-2"><CircleAlert className="mt-0.5 size-4 shrink-0 text-amber-700" aria-hidden />{w}</li>)}</ul>
             <p className="rounded-lg bg-muted/60 p-3 text-xs text-muted-foreground">{run.method}</p>
           </CardContent>
         </Card>
       </div>
     </div>
+  );
+}
+
+function SummaryItem({ k, v }: { k: string; v: string }) {
+  return (
+    <div className="min-w-0">
+      <dt className="text-xs text-muted-foreground">{k}</dt>
+      <dd className="font-medium break-words">{v}</dd>
+    </div>
+  );
+}
+
+function ManualPanel({ run, chartData, custom, setCustom, customChecks, onEvaluate }: {
+  run: OptimizerRun;
+  chartData: Record<string, string | number | null>[];
+  custom: Record<number, string>;
+  setCustom: (fn: (s: Record<number, string>) => Record<number, string>) => void;
+  customChecks: CustomChecks | null;
+  onEvaluate: () => void;
+}) {
+  const series = [
+    { key: "proposed", name: `Рекомендация #${run.run_id}`, color: "#4f46e5" },
+    { key: "custom", name: "Ручной вариант", color: PALETTE[1] },
+  ];
+  return (
+    <Card className="border-dashed bg-muted/20" data-testid="manual-panel">
+      <CardHeader>
+        <CardTitle className="flex flex-wrap items-center gap-2">
+          Ручной вариант · проверка без сохранения <Badge variant="outline">не сохраняется</Badge>
+        </CardTitle>
+        <CardDescription>
+          Проверка не изменяет сохранённую рекомендацию #{run.run_id}. Здесь можно проверить собственное распределение по тем же
+          ограничениям; принять можно только сохранённую рекомендацию системы выше.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="overflow-x-auto">
+          <Table data-testid="manual-table">
+            <caption className="sr-only">Ручной вариант часов для проверки</caption>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Тема</TableHead><TableHead className="text-right">Рекомендация #{run.run_id}</TableHead>
+                <TableHead className="w-32">Ручной вариант, ч</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {run.rows.map((r) => (
+                <TableRow key={r.topic_id}>
+                  <TableCell className="font-medium whitespace-normal">{r.name}</TableCell>
+                  <TableCell className="text-right tabular-nums">{num(r.proposed_hours)}</TableCell>
+                  <TableCell>
+                    <Input inputMode="decimal" className="h-8 w-20" aria-label={`Ручной вариант: ${r.name}`} value={custom[r.topic_id] ?? ""}
+                      onChange={(e) => setCustom((s) => ({ ...s, [r.topic_id]: e.target.value }))} />
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button variant="outline" onClick={onEvaluate} data-testid="evaluate-custom"><ShieldCheck className="size-4" aria-hidden /> Проверить ручной вариант</Button>
+          <div role="status" aria-live="polite">
+            {customChecks && (
+              <Badge variant={customChecks.ok ? "default" : "destructive"}>
+                {customChecks.ok ? "Ручной вариант соблюдает все ограничения" : "Ручной вариант нарушает ограничения"} · сумма {num(customChecks.total, 2)} ч · не сохранён
+              </Badge>
+            )}
+          </div>
+        </div>
+        {customChecks && (
+          <>
+            <GroupedBars data={chartData} series={series} unit="ч" height={260} />
+            <div className="grid gap-4 md:grid-cols-2">
+              <Checks title="Жёсткие ограничения — ручной вариант" checks={customChecks.constraints} />
+              <Checks title="Правила — ручной вариант (рекомендательные)" checks={customChecks.policy_checks.map((p) => ({
+                name: p.name, ok: p.ok, detail: p.ok ? "соблюдено" : `нарушено: ${p.affected_topics.join(", ")}` }))} />
+            </div>
+          </>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -477,13 +606,14 @@ function Field({ id, label, value, onChange, error }: { id: string; label: strin
   return (
     <div className="flex flex-col gap-1.5">
       <Label htmlFor={id} className="text-xs text-muted-foreground">{label}</Label>
-      <Input id={id} inputMode="decimal" value={value} onChange={(e) => onChange(e.target.value)} aria-invalid={!!error} />
-      {error && <span className="text-xs text-danger">{error}</span>}
+      <Input id={id} inputMode="decimal" value={value} onChange={(e) => onChange(e.target.value)} aria-invalid={!!error}
+        aria-describedby={error ? `${id}-error` : undefined} aria-errormessage={error ? `${id}-error` : undefined} />
+      {error && <span id={`${id}-error`} className="text-xs text-danger">{error}</span>}
     </div>
   );
 }
 
-function NumIn({ value, onChange, label }: { value: number; onChange: (v: number) => void; label: string }) {
+function NumIn({ value, onChange, label, errorId }: { value: number; onChange: (v: number) => void; label: string; errorId?: string }) {
   const [text, setText] = useState(String(value));
   const [prev, setPrev] = useState(value);
   if (value !== prev) {
@@ -493,6 +623,7 @@ function NumIn({ value, onChange, label }: { value: number; onChange: (v: number
   }
   return (
     <Input className="h-8 w-20" inputMode="decimal" aria-label={label} value={text}
+      aria-invalid={errorId ? true : undefined} aria-describedby={errorId} aria-errormessage={errorId}
       onChange={(e) => {
         setText(e.target.value);
         const v = Number(e.target.value.replace(",", "."));

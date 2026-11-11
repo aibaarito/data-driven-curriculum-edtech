@@ -36,6 +36,7 @@ export function SettingsView() {
   const [resetOpen, setResetOpen] = useState(false);
   const [confirm, setConfirm] = useState("");
   const [adminToken, setAdminToken] = useState("");
+  const [invalidCount, setInvalidCount] = useState(0);
   const form = useForm<SettingsForm>({ resolver: zodResolver(settingsSchema) });
 
   useEffect(() => {
@@ -46,6 +47,7 @@ export function SettingsView() {
   if (loading || !data) return <LoadingState rows={1} />;
 
   const onSubmit = form.handleSubmit(async (values) => {
+    setInvalidCount(0);
     setSaving(true);
     try {
       await api.put("/api/settings", values);
@@ -56,6 +58,9 @@ export function SettingsView() {
     } finally {
       setSaving(false);
     }
+  }, (errors) => {
+    // react-hook-form moves focus to the first invalid field (shouldFocusError); the summary is announced.
+    setInvalidCount(Object.keys(errors).length);
   });
 
   async function resetData() {
@@ -83,15 +88,26 @@ export function SettingsView() {
             <p key={n} className="mb-4 rounded-md border border-warning/50 bg-warning/10 p-3 text-sm" role="status">{n}</p>
           ))}
           <form onSubmit={onSubmit} className="space-y-5" noValidate data-testid="settings-form">
+            <div role="alert" aria-live="assertive" data-testid="settings-error-summary">
+              {invalidCount > 0 && Object.keys(form.formState.errors).length > 0 && (
+                <p className="rounded-md border border-danger/30 bg-danger/5 p-3 text-sm text-danger">
+                  Настройки не сохранены: исправьте поля ({Object.keys(form.formState.errors).length}). Курсор переведён на первое поле с ошибкой.
+                </p>
+              )}
+            </div>
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {FIELDS.map((f) => {
                 const err = form.formState.errors[f.name]?.message;
+                const hintId = `${f.name}-hint`;
+                const errId = `${f.name}-error`;
                 return (
                   <div key={f.name} className="flex flex-col gap-1.5">
                     <Label htmlFor={f.name}>{f.label}</Label>
                     <Input id={f.name} type="number" step="any" aria-invalid={!!err}
+                      aria-describedby={err ? `${errId} ${hintId}` : hintId} aria-errormessage={err ? errId : undefined}
                       {...form.register(f.name, { valueAsNumber: true })} />
-                    <span className={err ? "text-xs text-danger" : "text-xs text-muted-foreground"}>{err ?? f.hint}</span>
+                    {err && <span id={errId} className="text-xs text-danger">{err}</span>}
+                    <span id={hintId} className="text-xs text-muted-foreground">{f.hint}</span>
                   </div>
                 );
               })}

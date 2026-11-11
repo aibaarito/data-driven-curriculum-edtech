@@ -78,7 +78,13 @@ test("full methodologist journey", async ({ page }) => {
   await expect(page.getByTestId("verdict-text").first()).toContainText("С поправкой на исходный уровень");
   await expect(page.getByTestId("verdict-text").first()).toContainText("не доказательство причинного эффекта");
   await expect(page.getByTestId("evidence-level").first()).toHaveText("Предварительный вывод");
-  await expect(page.getByText("Разница прироста pre→post").first()).toBeVisible();
+  await expect(page.getByText("Разница прироста", { exact: true }).first()).toBeVisible();
+  // The compact verdict shows the adjusted estimate with the API's actual interval level and the class counts.
+  const pair = page.getByTestId("textbook-pair").first();
+  await expect(pair.getByTestId("pair-verdict")).toContainText("С поправкой на исходный уровень, Б − А");
+  await expect(pair.getByTestId("pair-verdict")).toContainText("% ДИ");
+  await expect(pair).toContainText("классов 3 и 3");
+  await expect(pair).toContainText("Возможные искажающие факторы");
   await shot(page, "05-textbooks-grade7");
   await page.goto("/textbooks?grade=8");
   await expect(page.getByTestId("verdict-text").first()).toHaveText("Недостаточно данных, чтобы определить, какой учебник эффективнее.");
@@ -96,7 +102,16 @@ test("full methodologist journey", async ({ page }) => {
   await expect(page.getByTestId("allocation-table")).toContainText("изменение от входной диагностики не установлено");
   await expect(page.getByTestId("policy-checks")).toContainText("соблюдено");
   await shot(page, "06-optimizer");
-  await page.getByTestId("accept-run").click();
+  // The accept action names the saved system recommendation and transmits exactly that run id.
+  const accept = page.getByTestId("accept-run");
+  await expect(accept).toHaveText("Принять рекомендацию системы");
+  const runId = await accept.getAttribute("data-run-id");
+  await expect(page.getByTestId("saved-run-summary")).toContainText(`#${runId}`);
+  await expect(page.getByTestId("saved-run-summary")).toContainText("82 из 82 ч");
+  const decision = page.waitForRequest((r) => r.url().includes("/decision") && r.method() === "POST");
+  await accept.click();
+  expect((await decision).url()).toContain(`/api/optimizer/runs/${runId}/decision`);
+  expect((await decision).postDataJSON()).toEqual({ decision: "accept" });
   await expect(page.getByTestId("run-status")).toHaveText("Принята");
 
   // Infeasible hard constraints produce an explicit error.
@@ -116,7 +131,8 @@ test("full methodologist journey", async ({ page }) => {
   await page.goto("/insights?grade=7");
   await page.getByTestId("generate-insights").click();
   const insights = page.getByTestId("insights-result");
-  await expect(insights).toContainText("детерминированный");
+  await expect(page.getByTestId("insights-mode-title")).toContainText("по шаблонам");
+  await expect(page.getByTestId("insights-result-scope")).toContainText("7 класс");
   await expect(insights).toContainText("Формулы сокращённого умножения");
   await expect(insights).toContainText("принято методистом");
   await shot(page, "07-insights");
@@ -126,6 +142,13 @@ test("full methodologist journey", async ({ page }) => {
   await page.getByTestId("create-report").click();
   await expect(page.getByTestId("report-view")).toContainText("Ограничения данных");
   await expect(page.getByTestId("plan-scope")).toContainText("7-й параллели");
+  // The saved snapshot keeps each change estimate together with its qualification, and leads with a summary.
+  await expect(page.getByTestId("report-gain-T7-05")).toContainText("изменение не установлено");
+  await expect(page.getByTestId("report-gain-T7-05")).toContainText("Это не доказывает отсутствие эффекта.");
+  await expect(page.getByTestId("report-discussion")).toContainText("Формулы сокращённого умножения");
+  await expect(page.getByTestId("report-discussion")).toContainText("Рекомендация");
+  await expect(page.getByTestId("report-view").getByText(/· 7 класс · все классы · весь период/).first()).toBeVisible();
+  await expect(page.getByTestId("report-snapshot")).toContainText("не изменяют этот отчёт");
   await shot(page, "08-report");
   const [download] = await Promise.all([page.waitForEvent("download"), page.getByTestId("download-pdf").click()]);
   const file = await download.path();
@@ -157,8 +180,16 @@ test("invalid upload is rejected with row-level errors and cannot be imported", 
   await page.getByTestId("validate-button").click();
   const preview = page.getByTestId("import-preview");
   await expect(preview).toContainText("В файле есть ошибки");
-  await expect(preview).toContainText("SCORE_EXCEEDS_MAX");
-  await expect(preview).toContainText("POSSIBLE_PERSONAL_DATA");
+  // Russian summary with affected rows distinguished from the error count; codes remain in technical details.
+  const summary = page.getByTestId("import-error-summary");
+  await expect(summary).toContainText(/Исправьте 2 строки\. Найдено \d+ ошибк[аи]?; данные ещё не импортированы\./);
+  await expect(page.getByTestId("issue-groups").locator(":scope > li")).toHaveCount(2);
+  await expect(page.getByTestId("issue-groups")).toContainText("Балл больше максимального");
+  await expect(page.getByTestId("issue-groups")).toContainText("Идентификатор ученика");
+  await expect(page.getByTestId("issue-groups")).not.toContainText("Иван Петров");
+  await expect(page.getByTestId("error-codes")).toContainText("SCORE_EXCEEDS_MAX");
+  await expect(page.getByTestId("error-codes")).toContainText("POSSIBLE_PERSONAL_DATA");
+  await expect(page.getByTestId("error-codes")).not.toBeVisible();
   await expect(page.getByTestId("commit-button")).toBeDisabled();
   await shot(page, "09-invalid-upload");
 
@@ -177,7 +208,8 @@ test("mobile layout has working navigation", async ({ browser }) => {
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
   expect(overflow).toBeLessThanOrEqual(1);
   await expect(page.getByRole("dialog")).toHaveCount(0);
-  await expect(page.getByTestId("topics-table")).toBeVisible();
+  // Narrow screens show one summary per topic (name, mastery, change status and topic status together).
+  await expect(page.getByTestId("topics-cards")).toBeVisible();
   await page.screenshot({ path: path.join(SHOTS, "10-mobile.png"), fullPage: false });
   await ctx.close();
 });
@@ -266,7 +298,7 @@ test("saved reports reopen and delete through the confirmation dialog", async ({
   await expect(page.getByTestId("report-view")).not.toContainText("Формулы сокращённого умножения");
   await page.reload();
   const first = page.getByTestId("report-list").locator("li").first();
-  await first.getByRole("button", { name: "Открыть", exact: true }).click();
+  await first.getByRole("button", { name: /^Открыть отчёт/ }).click();
   await expect(page.getByTestId("report-view")).toBeVisible();
   const before = await page.getByTestId("report-list").locator("li").count();
   await first.getByRole("button", { name: "Удалить отчёт" }).click();

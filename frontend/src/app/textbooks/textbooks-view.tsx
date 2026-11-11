@@ -40,14 +40,12 @@ function Content() {
   return (
     <div className="space-y-6">
       <Alert>
-        <HelpCircle className="size-4" />
+        <HelpCircle className="size-4" aria-hidden />
         <AlertTitle>Как читать сравнение</AlertTitle>
         <AlertDescription>
-          Сравниваются только учебники одной параллели и только по общим итоговым заданиям. Главная оценка — разница с
-          поправкой на исходный уровень (входную диагностику) и стандартными ошибками с учётом классов; её дополняет
-          сравнение прироста от входной к итоговой диагностике. Учебник назначается классу, поэтому выводы строятся по
-          классам, а не по ученикам. Более высокое
-          среднее само по себе не означает, что учебник эффективнее.
+          Сравниваются учебники одной параллели по общим итоговым заданиям. Главная оценка — разница с поправкой на исходный
+          уровень; её дополняет разница прироста. Учебник назначается классу, поэтому выводы строятся по классам. Это
+          наблюдательные данные: связь не доказывает эффект учебника.
         </AlertDescription>
       </Alert>
 
@@ -139,49 +137,87 @@ const EVIDENCE_LABEL = {
   observational: "Наблюдаемая связь",
 } as const;
 
+const HEADLINE = {
+  insufficient: "Недостаточно данных для вывода о различии",
+  exploratory: "Предварительная связь, не доказательство эффекта",
+  observational: "Наблюдаемая связь, не доказательство эффекта",
+} as const;
+
 function PairCard({ p }: { p: TextbookPair }) {
   const observed = p.verdict === "observed_difference";
   const lvl = p.ci_level;
+  const levelNote = p.pairs_in_family > 1 ? ` (поправка на ${p.pairs_in_family} сравнения в выбранной группе)` : "";
+  const students = p.raw ? `; учеников ${int(p.raw.n_a)} и ${int(p.raw.n_b)}` : "";
   return (
-    <Card className={observed ? "border-primary/30" : "border-warning/40"}>
+    <Card className={observed ? "border-primary/30" : "border-warning/40"} data-testid="textbook-pair">
       <CardHeader>
         <CardTitle className="flex flex-wrap items-start gap-2 text-base">
-          {observed ? <CheckCircle2 className="mt-0.5 size-5 shrink-0 text-primary" /> : <AlertTriangle className="mt-0.5 size-5 shrink-0 text-amber-600" />}
-          <span>{p.name_a} <span className="text-muted-foreground">vs</span> {p.name_b}</span>
+          {observed ? <CheckCircle2 className="mt-0.5 size-5 shrink-0 text-primary" aria-hidden />
+            : <AlertTriangle className="mt-0.5 size-5 shrink-0 text-amber-700" aria-hidden />}
+          <span>{HEADLINE[p.evidence_level]}</span>
           <Badge variant="outline" data-testid="evidence-level">{EVIDENCE_LABEL[p.evidence_level]}</Badge>
         </CardTitle>
-        <CardDescription className="text-sm text-foreground" data-testid="verdict-text">{p.verdict_text}</CardDescription>
+        <CardDescription className="text-sm">
+          <span className="font-medium text-foreground">А</span> — {p.name_a}; <span className="font-medium text-foreground">Б</span> — {p.name_b}.
+          Единица анализа — класс: классов {p.classes_a} и {p.classes_b}{students}
+          {p.excluded_small_classes ? `; исключено малых классов: ${p.excluded_small_classes}` : ""}.
+        </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        <p className="text-xs text-muted-foreground">
-          Единица анализа — класс (учебник назначается классу): классов {p.classes_a} и {p.classes_b}
-          {p.excluded_small_classes ? `, исключено малых классов: ${p.excluded_small_classes}` : ""}. Уровень интервалов {lvl}%
-          {p.pairs_in_family > 1 ? ` (поправка на ${p.pairs_in_family} сравнения)` : ""}.
-        </p>
+        {observed && p.adjusted ? (
+          <div className="rounded-lg border border-primary/25 bg-accent/40 p-3" data-testid="pair-verdict">
+            <div className="text-xs text-muted-foreground">С поправкой на исходный уровень, Б − А</div>
+            <div className="text-2xl font-semibold tabular-nums">{signed(p.adjusted.diff, " п.п.")}</div>
+            <div className="text-sm tabular-nums">{num(lvl, 2)}% ДИ: {ci(p.adjusted.ci_low, p.adjusted.ci_high)}{levelNote}</div>
+            <p className="mt-2 text-sm">
+              Различия могут быть связаны с учителем, составом класса и исходным уровнем: учебники не распределялись случайно.
+            </p>
+          </div>
+        ) : (
+          <div className="rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm" data-testid="pair-verdict">
+            <p className="font-medium" data-testid="verdict-text">{p.verdict_text}</p>
+            {p.reasons.length > 0 && (
+              <ul className="mt-1 list-disc space-y-0.5 pl-5">{p.reasons.map((r) => <li key={r}>{r}</li>)}</ul>
+            )}
+          </div>
+        )}
+
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <Est title="Разница без поправки" sub={`средние классов, «${p.name_b}» − «${p.name_a}»`} level={lvl}
-            d={p.raw?.diff} lo={p.raw?.ci_low} hi={p.raw?.ci_high}
-            extra={p.raw ? `По ученикам (описательно): ${signed(p.raw.student_level_diff, " п.п.")}; g Хеджеса = ${num(p.raw.hedges_g, 2)}` : undefined} />
-          <Est title="С поправкой на исходный уровень" sub="ANCOVA по средним классов" level={lvl}
+          <Est title="Без поправки" sub="средние классов, Б − А" level={lvl} d={p.raw?.diff} lo={p.raw?.ci_low} hi={p.raw?.ci_high} />
+          <Est title="С поправкой на исходный уровень" sub="средние классов, Б − А" level={lvl}
             d={p.adjusted?.diff} lo={p.adjusted?.ci_low} hi={p.adjusted?.ci_high}
-            extra={p.adjusted ? `классов = ${p.adjusted.n_classes}, df = ${p.adjusted.df}, p = ${p.adjusted.p_value ?? "—"}` : "не оценивается"} highlight />
-          <Est title="Разница прироста pre→post" level={lvl}
-            sub={p.gain ? `средний прирост классов: ${signed(p.gain.mean_b, " п.п.")} против ${signed(p.gain.mean_a, " п.п.")}` : "не оценивается"}
+            extra={p.adjusted ? undefined : "не оценивается"} highlight />
+          <Est title="Разница прироста" level={lvl} sub="входная → итоговая, средние классов, Б − А"
             d={p.gain?.diff} lo={p.gain?.ci_low} hi={p.gain?.ci_high}
-            extra={p.gain ? `Welch по классам: ${p.gain.n_a} и ${p.gain.n_b}, df = ${p.gain.df ?? "—"}` : undefined} />
-          <Est title="Разница исходного уровня" sub="входная диагностика, средние классов" d={p.baseline_diff}
+            extra={p.gain ? `Прирост: Б ${signed(p.gain.mean_b, " п.п.")}, А ${signed(p.gain.mean_a, " п.п.")}` : "не оценивается"} />
+          <Est title="Разница исходного уровня" sub="входная диагностика, Б − А" d={p.baseline_diff}
             extra={p.hours_diff !== null ? `Разница часов на класс: ${signed(p.hours_diff, " ч")}` : undefined} />
         </div>
-        {p.reasons.length > 0 && (
-          <div>
-            <div className="mb-1 text-sm font-medium">Почему вывод невозможен</div>
-            <ul className="list-disc space-y-0.5 pl-5 text-sm text-muted-foreground">{p.reasons.map((r) => <li key={r}>{r}</li>)}</ul>
-          </div>
+
+        {observed && p.reasons.length > 0 && (
+          <ul className="list-disc space-y-0.5 pl-5 text-sm text-muted-foreground">{p.reasons.map((r) => <li key={r}>{r}</li>)}</ul>
         )}
         <div>
           <div className="mb-1 text-sm font-medium">Возможные искажающие факторы</div>
           <ul className="list-disc space-y-0.5 pl-5 text-sm text-muted-foreground">{p.confounders.map((r) => <li key={r}>{r}</li>)}</ul>
         </div>
+
+        <details className="rounded-lg border text-sm">
+          <summary className="cursor-pointer rounded-lg px-3 py-2 font-medium text-primary outline-none focus-visible:ring-2 focus-visible:ring-ring">
+            Как рассчитано
+          </summary>
+          <div className="space-y-2 px-3 pb-3 text-muted-foreground">
+            {observed && <p className="text-foreground" data-testid="verdict-text">{p.verdict_text}</p>}
+            <p>
+              Интервалы — {num(lvl, 2)}% ДИ{levelNote}; уровень зависит от выбранной группы, поэтому интервалы для всех параллелей
+              и для одной параллели могут различаться.
+            </p>
+            {p.adjusted && <p>С поправкой: ANCOVA по средним классов (классов = {p.adjusted.n_classes}, df = {p.adjusted.df}, p = {p.adjusted.p_value ?? "—"}).</p>}
+            {p.gain && <p>Прирост: критерий Уэлча по средним приростам классов ({p.gain.n_a} и {p.gain.n_b} кл., df = {p.gain.df ?? "—"}).</p>}
+            {p.raw && <p>Описательно по ученикам: {signed(p.raw.student_level_diff, " п.п.")}; g Хеджеса = {num(p.raw.hedges_g, 2)}. Вывод по ученикам не делается: учебник назначается классу.</p>}
+            <p>Общих итоговых заданий в сравнении: {p.common_items}.</p>
+          </div>
+        </details>
       </CardContent>
     </Card>
   );
@@ -192,11 +228,11 @@ function Est({ title, sub, d, lo, hi, extra, highlight, level }: {
   level?: number;
 }) {
   return (
-    <div className={highlight ? "rounded-lg border border-primary/25 bg-accent/40 p-3" : "rounded-lg border p-3"}>
+    <div className={highlight ? "rounded-lg border border-primary/25 p-3" : "rounded-lg border p-3"}>
       <div className="text-xs font-medium">{title}</div>
       <div className="text-[11px] text-muted-foreground">{sub}</div>
-      <div className="mt-1 text-xl font-semibold tabular-nums">{signed(d ?? null, " п.п.")}</div>
-      {level !== undefined && <div className="text-xs text-muted-foreground tabular-nums">{level}% ДИ: {ci(lo, hi)}</div>}
+      <div className="mt-1 text-lg font-semibold tabular-nums">{signed(d ?? null, " п.п.")}</div>
+      {level !== undefined && <div className="text-xs text-muted-foreground tabular-nums">{num(level, 2)}% ДИ: {ci(lo, hi)}</div>}
       {extra && <div className="mt-1 text-xs text-muted-foreground">{extra}</div>}
     </div>
   );

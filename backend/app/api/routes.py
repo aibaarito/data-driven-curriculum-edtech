@@ -49,6 +49,7 @@ from app.services.optimizer import (
 from app.services.previews import COMMIT_LOCK_KEY, expiry_from_now, purge_expired
 from app.security import token_matches
 from app.services.integrity import run_integrity_checks
+from app.services.report_summary import discussion_points, report_title
 from app.services.report_pdf import render_pdf
 from app.services.settings_store import (
     AnalysisSettings,
@@ -449,7 +450,8 @@ def create_report(db: DB, body: ReportBody) -> dict[str, Any]:
         "optimizer_scope_note": ctx.get("optimizer_scope_note"),
         "insights": insights, "limitations": _limitations(ctx), "trend": ctx["trend"],
     }
-    title = body.title or f"Аналитический отчёт — {datetime.now().strftime('%d.%m.%Y %H:%M')}"
+    # Informative default title from the actual stored scope; the creation time is kept separately (created_at).
+    title = body.title or report_title(content["filter_labels"], content["filters"])
     rep = m.GeneratedReport(title=title, filters=f.as_dict(), content=content)
     db.add(rep)
     db.commit()
@@ -460,6 +462,8 @@ def _report_dict(r: m.GeneratedReport, full: bool = True) -> dict[str, Any]:
     d = {"id": r.id, "title": r.title, "created_at": r.created_at.isoformat(), "filters": r.filters}
     if full:
         d["content"] = r.content
+        # Derived from the stored snapshot only (never from current analytics), so older reports stay consistent.
+        d["discussion"] = discussion_points(r.content)
     return d
 
 

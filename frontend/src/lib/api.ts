@@ -62,8 +62,8 @@ async function request<T>(method: string, path: string, body?: unknown, signal?:
 
 export const api = {
   get: <T>(path: string, signal?: AbortSignal) => request<T>("GET", path, undefined, signal),
-  post: <T>(path: string, body?: unknown, headers?: Record<string, string>) =>
-    request<T>("POST", path, body ?? {}, undefined, headers),
+  post: <T>(path: string, body?: unknown, headers?: Record<string, string>, signal?: AbortSignal) =>
+    request<T>("POST", path, body ?? {}, signal, headers),
   put: <T>(path: string, body: unknown) => request<T>("PUT", path, body),
   del: <T>(path: string) => request<T>("DELETE", path),
 };

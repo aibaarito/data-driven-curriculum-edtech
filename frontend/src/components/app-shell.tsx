@@ -13,8 +13,8 @@ import {
   Upload,
 } from "lucide-react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { useState, type ReactNode } from "react";
+import { usePathname, useSearchParams } from "next/navigation";
+import { Suspense, useState, type ReactNode } from "react";
 
 import { useMeta } from "@/components/meta-provider";
 import { Badge } from "@/components/ui/badge";
@@ -22,6 +22,7 @@ import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { t } from "@/i18n";
+import { parseFilters, toQuery } from "@/lib/filters";
 import { cn } from "@/lib/utils";
 
 export const NAV = [
@@ -35,7 +36,21 @@ export const NAV = [
   { href: "/settings", label: t.nav.settings, icon: Settings },
 ] as const;
 
-function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
+/** Links carry the current analysis filters; each screen applies what it supports and explains the rest. */
+function ScopedNavLinks({ onNavigate }: { onNavigate?: () => void }) {
+  const params = useSearchParams();
+  return <NavLinks onNavigate={onNavigate} query={toQuery(parseFilters(params))} />;
+}
+
+function Nav({ onNavigate }: { onNavigate?: () => void }) {
+  return (
+    <Suspense fallback={<NavLinks onNavigate={onNavigate} />}>
+      <ScopedNavLinks onNavigate={onNavigate} />
+    </Suspense>
+  );
+}
+
+function NavLinks({ onNavigate, query = "" }: { onNavigate?: () => void; query?: string }) {
   const pathname = usePathname();
   return (
     <nav className="flex flex-col gap-0.5" aria-label="Основная навигация">
@@ -44,11 +59,11 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
         return (
           <Link
             key={href}
-            href={href}
+            href={`${href}${query}`}
             onClick={onNavigate}
             aria-current={active ? "page" : undefined}
             className={cn(
-              "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+              "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",
               active ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground",
             )}
           >
@@ -63,7 +78,7 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
 
 function Brand({ compact = false }: { compact?: boolean }) {
   return (
-    <Link href="/" className="flex items-center gap-2.5 px-1">
+    <Link href="/" className="flex items-center gap-2.5 rounded-lg px-1 outline-none focus-visible:ring-2 focus-visible:ring-ring">
       <span className="grid size-8 place-items-center rounded-lg bg-primary text-primary-foreground shadow-sm">
         <GraduationCap className="size-4.5" aria-hidden />
       </span>
@@ -97,7 +112,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 flex-col border-r bg-sidebar px-4 py-5 lg:flex">
         <Brand />
         <div className="mt-8 flex-1">
-          <NavLinks />
+          <Nav />
         </div>
         <div className="space-y-2 border-t pt-4 text-xs text-muted-foreground">
           <SyntheticBadge />
@@ -121,7 +136,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                   <Brand />
                 </SheetTitle>
               </SheetHeader>
-              <NavLinks onNavigate={() => setOpen(false)} />
+              <Nav onNavigate={() => setOpen(false)} />
             </SheetContent>
           </Sheet>
         </div>

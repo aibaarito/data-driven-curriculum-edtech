@@ -469,6 +469,10 @@ def _extract_json(text: str) -> Any:
 def generate_insights(context: dict[str, Any], settings: Settings, llm=call_llm) -> dict[str, Any]:
     facts = build_facts(context)
     fallback_reason: str | None = None
+    # Machine-readable fallback cause for the UI: not_configured | rejected | provider_error. The exception class
+    # name is kept only as a secondary technical detail, never in the primary user-facing reason.
+    fallback_kind: str | None = None
+    fallback_detail: str | None = None
     attempts = 0
     if settings.llm_enabled:
         user = "FACTS = " + json.dumps(facts, ensure_ascii=False)
@@ -479,18 +483,25 @@ def generate_insights(context: dict[str, Any], settings: Settings, llm=call_llm)
                 payload = render_llm_payload(raw, facts)
                 verify_rendered(payload, facts)
                 return {"mode": "llm", "model": settings.llm_model, "payload": payload.model_dump(),
-                        "facts": facts, "attempts": attempts, "fallback_reason": None}
+                        "facts": facts, "attempts": attempts, "fallback_reason": None, "fallback_kind": None,
+                        "fallback_detail": None}
             except (ValidationError, GroundingError, ValueError, json.JSONDecodeError) as exc:
-                fallback_reason = f"Ответ модели отклонён проверкой: {type(exc).__name__}"
+                fallback_reason = ("Ответ модели отклонён проверкой соответствия расчётам. Показаны пояснения по "
+                                   "шаблонам; расчёты не изменились.")
+                fallback_kind, fallback_detail = "rejected", type(exc).__name__
                 log.warning("LLM output rejected (attempt %s): %s", attempts, type(exc).__name__)
                 user += ("\n\nПредыдущий ответ отклонён проверкой: " + str(exc)[:300] +
                          ". Соблюдай правила: только плейсхолдеры, без цифр и названий.")
             except (httpx.HTTPError, RuntimeError, KeyError) as exc:
-                fallback_reason = f"Сервис ИИ недоступен: {type(exc).__name__}"
+                fallback_reason = ("Сервис языковой модели недоступен или не ответил вовремя. Показаны пояснения по "
+                                   "шаблонам; расчёты не изменились.")
+                fallback_kind, fallback_detail = "provider_error", type(exc).__name__
                 log.warning("LLM call failed: %s", type(exc).__name__)
                 break
     else:
-        fallback_reason = "Ключ API модели не задан — используется детерминированный режим."
+        fallback_reason = "Ключ API модели не задан — пояснения сформированы по шаблонам без языковой модели."
+        fallback_kind = "not_configured"
     payload = deterministic_insights(context)
     return {"mode": "deterministic", "model": None, "payload": payload.model_dump(), "facts": facts,
-            "attempts": attempts, "fallback_reason": fallback_reason}
+            "attempts": attempts, "fallback_reason": fallback_reason, "fallback_kind": fallback_kind,
+            "fallback_detail": fallback_detail}
