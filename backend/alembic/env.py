@@ -22,7 +22,8 @@ from app.config import get_settings
 from app.db import Base
 import app.models  # noqa: F401
 
-config.set_main_option('sqlalchemy.url', get_settings().database_url)
+# ConfigParser otherwise interprets percent-escaped passwords/query values.
+config.set_main_option('sqlalchemy.url', get_settings().database_url.replace('%', '%%'))
 target_metadata = Base.metadata
 
 # other values from the config, defined by the needs of env.py,

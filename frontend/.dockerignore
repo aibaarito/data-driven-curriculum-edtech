@@ -2,3 +2,7 @@ node_modules
 .next
 test-results
 e2e/report
+.env
+.env.*
+*.log
+coverage

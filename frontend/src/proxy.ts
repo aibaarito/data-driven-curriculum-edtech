@@ -10,6 +10,8 @@ function safeEqual(a: string, b: string): boolean {
 }
 
 export function proxy(request: NextRequest) {
+  // This exact route returns readiness only; all data routes remain protected.
+  if (request.nextUrl.pathname === "/api/health") return NextResponse.next();
   const user = process.env.DEMO_BASIC_AUTH_USER;
   const pass = process.env.DEMO_BASIC_AUTH_PASSWORD;
   if (!user || !pass) return NextResponse.next();

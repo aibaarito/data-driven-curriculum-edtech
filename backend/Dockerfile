@@ -8,5 +8,6 @@ COPY . .
 RUN useradd --create-home appuser && chown -R appuser /app
 USER appuser
 EXPOSE 8010
-# Apply migrations on start so the stack always boots from an empty database.
-CMD ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8010"]
+# Railway uses pre-deploy migrations and RUN_MIGRATIONS_ON_START=false.
+# Standalone/Compose keeps its existing migrate-on-start convenience.
+CMD ["sh", "start.sh"]

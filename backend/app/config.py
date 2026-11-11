@@ -1,6 +1,7 @@
 """Application configuration loaded from environment variables."""
 from functools import lru_cache
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -28,6 +29,16 @@ class Settings(BaseSettings):
     llm_model: str = "claude-sonnet-5-5"
     llm_base_url: str = ""  # only for openai_compatible
     llm_timeout_seconds: float = 30.0
+
+    @field_validator("database_url", mode="before")
+    @classmethod
+    def psycopg_database_url(cls, value: str) -> str:
+        # Railway supplies postgresql://. Change only the driver prefix: do not
+        # decode/re-encode credentials, IPv6 hosts or connection query parameters.
+        for prefix in ("postgresql://", "postgres://"):
+            if value.startswith(prefix):
+                return "postgresql+psycopg://" + value[len(prefix):]
+        return value
 
     @property
     def llm_enabled(self) -> bool:

@@ -67,12 +67,14 @@ DATA_DIR = Path(__file__).resolve().parent.parent / "assets" / "data"
 
 
 @router.get("/health")
-def health(db: DB) -> dict[str, Any]:
+def health(db: DB, response: Response) -> dict[str, Any]:
     try:
         db.execute(text("SELECT 1"))
         db_ok = True
     except SQLAlchemyError:
         db_ok = False
+    response.status_code = 200 if db_ok else 503
+    response.headers["Cache-Control"] = "no-store"
     return {"status": "ok" if db_ok else "degraded", "database": db_ok, "llm_enabled": get_settings().llm_enabled}
 
 

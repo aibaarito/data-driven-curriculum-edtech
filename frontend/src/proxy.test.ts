@@ -29,3 +29,12 @@ describe("optional UI basic authentication", () => {
     expect(proxy(request(`Basic ${btoa("judge:test-password")}`)).status).toBe(200);
   });
 });
+
+it("allows exact readiness but protects every data route with basic auth", () => {
+  vi.stubEnv("DEMO_BASIC_AUTH_USER", "judge");
+  vi.stubEnv("DEMO_BASIC_AUTH_PASSWORD", "private-test");
+  expect(proxy(new NextRequest("http://localhost/api/health")).status).toBe(200);
+  for (const path of ["/", "/api/meta", "/api/health/extra", "/reports"]) {
+    expect(proxy(new NextRequest(`http://localhost${path}`)).status).toBe(401);
+  }
+});
