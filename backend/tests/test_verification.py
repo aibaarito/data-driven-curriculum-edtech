@@ -128,7 +128,11 @@ def test_report_snapshot_pdf_scope_and_delete_lifecycle(client):
     # Stored report remains a snapshot when thresholds change.
     settings = client.get("/api/settings").json()["analysis"]
     assert client.put("/api/settings", json={**settings, "target_mastery": 80}).status_code == 200
-    assert client.get(path).json() == report
+    reopened = client.get(path).json()
+    # The frozen snapshot is unchanged; the report is now labelled stale because its evidence context changed.
+    assert {k: v for k, v in reopened.items() if k != "evidence_status"} == \
+        {k: v for k, v in report.items() if k != "evidence_status"}
+    assert report["evidence_status"] == "current" and reopened["evidence_status"] == "stale"
     assert client.delete(path).status_code == 200
     for suffix in ("", "/pdf"):
         assert client.get(path + suffix).status_code == 404

@@ -261,10 +261,17 @@ def test_migrations_are_reversible_on_disposable_database(migrated_db):
     from tests.conftest import ROOT
     cfg = Config(str(ROOT / "alembic.ini"))
     cfg.set_main_option("script_location", str(ROOT / "alembic"))
+    command.downgrade(cfg, "6129d2b374e8")  # decision-intelligence migration removed
+    assert q(migrated_db, "select count(*) from information_schema.tables where table_name in "
+                          "('interventions','audit_events')") == [(0,)]
+    assert q(migrated_db, "select count(*) from information_schema.columns where table_name='topic_prerequisites' "
+                          "and column_name='review_status'") == [(0,)]
     command.downgrade(cfg, "-1")
     assert q(migrated_db, "select count(*) from information_schema.columns where table_name='import_batches' "
                           "and column_name='expires_at'") == [(0,)]
     command.upgrade(cfg, "head")
+    assert q(migrated_db, "select count(*) from information_schema.tables where table_name in "
+                          "('interventions','audit_events')") == [(2,)]
     assert q(migrated_db, "select count(*) from information_schema.columns where table_name='import_batches' "
                           "and column_name='expires_at'") == [(1,)]
 

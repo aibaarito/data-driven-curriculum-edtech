@@ -56,6 +56,38 @@ class EvaluateBody(OptimizerRunBody):
 
 class DecisionBody(BaseModel):
     decision: Literal["accept", "reject"]
+    note: str | None = Field(None, max_length=1000)
+    # Accepting a recommendation whose evidence changed since it was computed requires an explicit acknowledgement.
+    acknowledge_stale: bool = False
+
+
+class ScenarioSaveBody(OptimizerRunBody):
+    scenario_key: Literal["conservative", "balanced", "gap_focused"]
+    fingerprint: str = Field(min_length=8, max_length=64, pattern=r"^[0-9a-f]+$")
+    idempotency_key: str = Field(min_length=8, max_length=64, pattern=r"^[A-Za-z0-9_\-]+$")
+
+
+class PrerequisiteBody(BaseModel):
+    topic_id: int = Field(ge=1)
+    prerequisite_id: int = Field(ge=1)
+    origin: Literal["expert", "suggested"] = "expert"
+
+
+class EdgeReviewBody(BaseModel):
+    decision: Literal["approve", "reject"]
+
+
+class InterventionCreate(BaseModel):
+    run_id: int = Field(ge=1)
+    description: str = Field(min_length=3, max_length=2000)
+    reviewer: str | None = Field(None, max_length=120)
+    planned_on: date | None = None
+    synthetic: bool = False
+
+
+class InterventionTransition(BaseModel):
+    status: Literal["implemented", "awaiting_outcome", "cancelled"]  # "evaluated" only via /evaluate
+    implemented_on: date | None = None
 
 
 class TopicUpdate(BaseModel):

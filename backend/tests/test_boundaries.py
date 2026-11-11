@@ -19,12 +19,12 @@ def test_all_api_routes_consistently_require_the_shared_token(client):
                 if method not in {"get", "post", "put", "delete"}:
                     continue
                 concrete = path
-                for parameter in ("batch_id", "report_id", "topic_id", "run_id"):
+                for parameter in ("batch_id", "report_id", "topic_id", "run_id", "edge_id", "intervention_id"):
                     concrete = concrete.replace("{" + parameter + "}", "999999")
                 response = anonymous.request(method.upper(), concrete)
                 assert response.status_code == (200 if path == "/api/health" else 401)
                 checked += 1
-        assert checked == 28
+        assert checked == 45  # 28 original + 17 decision-intelligence routes
     health = client.get("/api/health")
     assert set(health.json()) == {"status", "database", "llm_enabled"}
     assert API_TOKEN not in health.text and ADMIN_TOKEN not in health.text
