@@ -98,7 +98,8 @@ def evaluate(df: pd.DataFrame, baseline: dict[str, Any], implemented_on: date) -
             "descriptive_change": an.r1(m_after - bt["mastery"]) if m_after is not None and bt["mastery"] is not None
             else None,
             "students_before": n_b, "students_after": n_a, "paired_students": n_p,
-            "lost_to_follow_up": max(0, n_b - n_p), "new_students": max(0, n_a - n_p),
+            # missingness is only defined when the topic was assessed again after implementation
+            "lost_to_follow_up": max(0, n_b - n_p) if n_a else None, "new_students": max(0, n_a - n_p) if n_a else None,
             "baseline_consistent": (bt["mastery"] is None or m_before is None or abs(an.r1(m_before) - bt["mastery"]) < 0.05),
             "paired": None, "direction": "no_outcome_data" if m_after is None else "insufficient",
         }

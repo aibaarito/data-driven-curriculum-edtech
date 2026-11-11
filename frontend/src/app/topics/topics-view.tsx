@@ -6,6 +6,7 @@ import { useSearchParams } from "next/navigation";
 import { useMemo, useRef, useState } from "react";
 
 import { DistributionChart, MultiSeriesTrend } from "@/components/charts";
+import { TopicPassportButton } from "@/components/evidence-passport";
 import { FilterBar, useFilters } from "@/components/filter-bar";
 import { RequireData } from "@/components/page-frame";
 import { EmptyState, ErrorState, LoadingState } from "@/components/states";
@@ -268,6 +269,7 @@ function TopicDetail({ topic, data, compact = false }: { topic: TopicStat; data:
             <Info className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden />
             <p>{topic.interpretation}</p>
           </div>
+          <PassportForTopic topic={topic} />
           {g ? (
             <div className="space-y-1">
               <div className="font-medium">Изменение: входная → итоговая диагностика ({g.n_paired} пар)</div>
@@ -298,6 +300,13 @@ function TopicDetail({ topic, data, compact = false }: { topic: TopicStat; data:
       </Card>
     </div>
   );
+}
+
+/** Evidence Passport for the same scope as the topic analysis (subject and grade pinned to the topic). */
+function PassportForTopic({ topic }: { topic: TopicStat }) {
+  const [filters] = useFilters();
+  const q = toQuery({ ...filters, subject_id: filters.subject_id, grade: topic.grade });
+  return <TopicPassportButton topicId={topic.topic_id} topicName={topic.name} query={q} />;
 }
 
 function Metric({ k, v, sub }: { k: string; v: string; sub?: string }) {

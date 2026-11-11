@@ -16,6 +16,10 @@ export const SCREEN_FILTERS: Record<string, readonly Key[]> = {
   "/textbooks": ["subject_id", "grade", "date_from", "date_to"],
   // One hours plan per subject and grade: class, textbook and period do not apply.
   "/optimizer": ["subject_id", "grade"],
+  // Decision-intelligence screens work on one subject and grade (one grade-level plan).
+  "/decisions": ["subject_id", "grade"],
+  "/curriculum": ["subject_id", "grade"],
+  "/scenarios": ["subject_id", "grade"],
 };
 
 const KEY_LABEL: Record<Key, string> = {

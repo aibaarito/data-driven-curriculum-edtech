@@ -286,6 +286,7 @@ def test_outcome_evaluation_reports_association_with_missingness():
     assert "НЕ доказывает" in out["statements"]["causal"]
     none = iv.evaluate(df, baseline, date(2027, 1, 1))
     assert none["ready"] is False and none["topics"][0]["direction"] == "no_outcome_data"
+    assert none["topics"][0]["lost_to_follow_up"] is None  # not assessed again ≠ students lost
 
 
 # ============================================================================ API
@@ -454,6 +455,10 @@ def test_api_decision_center_overview(demo):
     by = {c.get("topic_id"): c for c in d["candidates"] if c["kind"] == "topic"}
     assert by[ids["T7-05"]]["action"]["code"] == "review_methodology"
     assert by[ids["T7-06"]]["action"]["code"] == "increase_hours"
+    sec = lambda tid: {a["code"] for a in by[ids[tid]]["secondary_actions"]}  # noqa: E731
+    # T7-05 is the weak foundation of T7-06; T7-06 is the topic whose prerequisite is weak
+    assert "prioritize_foundation" in sec("T7-05") and "review_prerequisites" not in sec("T7-05")
+    assert "review_prerequisites" in sec("T7-06") and "prioritize_foundation" not in sec("T7-06")
     assert by[ids["T7-05"]]["constraint_impact"]["sensitivity"] is not None
     assert any(c["kind"] == "textbook" and c["action"]["code"] == "review_textbook" for c in d["candidates"])
     assert d["readiness"]["supported"] == 8 and d["plan"]["available"] and d["plan"]["total_hours"] == 82

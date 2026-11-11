@@ -4,12 +4,15 @@ import {
   BarChart3,
   BookOpenCheck,
   FileText,
+  GitBranch,
   GraduationCap,
+  Layers,
   LayoutDashboard,
   Menu,
   Scale,
   Settings,
   Sparkles,
+  Target,
   Upload,
 } from "lucide-react";
 import Link from "next/link";
@@ -27,10 +30,13 @@ import { cn } from "@/lib/utils";
 
 export const NAV = [
   { href: "/", label: t.nav.dashboard, icon: LayoutDashboard },
+  { href: "/decisions", label: t.nav.decisions, icon: Target },
   { href: "/import", label: t.nav.import, icon: Upload },
   { href: "/topics", label: t.nav.topics, icon: BarChart3 },
+  { href: "/curriculum", label: t.nav.curriculum, icon: GitBranch },
   { href: "/textbooks", label: t.nav.textbooks, icon: Scale },
   { href: "/optimizer", label: t.nav.optimizer, icon: BookOpenCheck },
+  { href: "/scenarios", label: t.nav.scenarios, icon: Layers },
   { href: "/insights", label: t.nav.insights, icon: Sparkles },
   { href: "/reports", label: t.nav.reports, icon: FileText },
   { href: "/settings", label: t.nav.settings, icon: Settings },

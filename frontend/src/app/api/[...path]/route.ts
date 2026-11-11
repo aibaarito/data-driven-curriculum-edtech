@@ -5,7 +5,7 @@ import type { NextRequest } from "next/server";
 // they are being received.
 const API_URL = process.env.API_URL ?? "http://127.0.0.1:8010";
 const FORWARD_REQUEST_HEADERS = ["content-type", "content-length", "accept", "x-admin-token"];
-const FORWARD_RESPONSE_HEADERS = ["content-type", "content-disposition", "content-length", "cache-control"];
+const FORWARD_RESPONSE_HEADERS = ["content-type", "content-disposition", "content-length", "cache-control", "x-request-id"];
 
 async function forward(req: NextRequest, ctx: { params: Promise<{ path: string[] }> }): Promise<Response> {
   const { path } = await ctx.params;

@@ -11,7 +11,8 @@ Rule table (problem → primary action; see docs/ANALYTICS.md § Decision rules)
     low + change not established     → review_methodology         (+ increase_hours only inside a reviewed scenario)
     low + no baseline / too few pairs→ add_diagnostic_assessment
     low + significant increase       → increase_hours (reallocate within the budget; slow but measurable learning)
-    weak prerequisite of weak topics → review_prerequisites added (foundational gap)
+    weak prerequisite of weak topics → prioritize_foundation added (foundational gap)
+    topic with weak prerequisites    → review_prerequisites added
     textbook pair observed difference→ review_textbook (scope level; never "replace")
 """
 from __future__ import annotations
@@ -27,6 +28,7 @@ ACTIONS = {
     "reallocate_hours": "Высвободить часы для других тем",
     "add_diagnostic_assessment": "Провести дополнительную диагностику",
     "review_prerequisites": "Проверить освоение пререквизитов",
+    "prioritize_foundation": "Закрепить тему до изучения зависимых тем",
     "review_textbook": "Проверить соответствие учебника",
     "collect_more_evidence": "Собрать больше данных",
     "maintain": "Сохранить текущий план",
@@ -92,9 +94,10 @@ def topic_candidates(topics: list[dict[str, Any]], s: AnalysisSettings, fingerpr
             continue
         problem, action, secondary, rejected = _rule(t, ev)
         if node.get("foundational_gap"):
-            secondary = [*secondary, "review_prerequisites"] if "review_prerequisites" not in secondary else secondary
-            if problem not in ("low_declining",):
-                problem = problem if SEVERITY.get(problem, 0) >= SEVERITY["foundational_gap"] else "foundational_gap"
+            # the topic itself precedes weak topics: consolidate it before dependent topics are taught
+            secondary = [*secondary, "prioritize_foundation"]
+            if SEVERITY.get(problem, 0) < SEVERITY["foundational_gap"]:
+                problem = "foundational_gap"
         weak_prereqs = [p for p in node.get("prerequisites", []) if graph_nodes.get(p, {}).get("status")
                         in ("difficult", "watch")]
         if weak_prereqs and "review_prerequisites" not in secondary:
@@ -124,7 +127,7 @@ def topic_candidates(topics: list[dict[str, Any]], s: AnalysisSettings, fingerpr
             impact["sensitivity"] = sens
         pr = node.get("priority") or {"score": 0.0, "components": {}}
         hypothesis = None
-        if action in ("increase_hours", "review_methodology", "review_prerequisites"):
+        if action in ("increase_hours", "review_methodology"):
             hypothesis = ("Гипотеза (не проверена): выбранное действие может повысить освоение темы. Проверить на "
                           "следующем сопоставимом оценивании; без группы сравнения вывод будет наблюдательным.")
         limitations = ["Данные наблюдательные: причина низкого результата по данным не установлена."]
