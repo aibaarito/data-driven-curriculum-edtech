@@ -26,12 +26,20 @@ for db in ("ddc", "ddc_test"):
 EOF
     )
     (cd "$ROOT/frontend" && npm ci)
+    if [ ! -f "$ROOT/backend/.env" ]; then
+      # Local development only: reset is enabled with a random admin token kept in the git-ignored backend/.env.
+      ADMIN=$(python3 -c "import secrets; print(secrets.token_urlsafe(24))")
+      printf "ENABLE_DATA_RESET=true\nADMIN_TOKEN=%s\n" "$ADMIN" > "$ROOT/backend/.env"
+      chmod 600 "$ROOT/backend/.env"
+      echo "Created backend/.env (local reset enabled; the admin token is stored there)."
+    fi
     echo "Setup complete. Run ./dev.sh start"
     ;;
   start)
     "$PG/pg_ctl" -D "$PGDATA" status >/dev/null 2>&1 || \
       "$PG/pg_ctl" -D "$PGDATA" -o "-p $PORT_DB -k /tmp -h 127.0.0.1" -l "$ROOT/devdb/pg.log" -w start
     (cd "$ROOT/backend" && . .venv/bin/activate && alembic upgrade head && \
+      (python scripts/integrity_check.py || echo "Integrity check found issues: see output above (read-only).") && \
       nohup uvicorn app.main:app --host 127.0.0.1 --port 8010 > "$ROOT/backend.log" 2>&1 &)
     (cd "$ROOT/frontend" && npm run build && nohup npx next start -p 3010 -H 127.0.0.1 > "$ROOT/frontend.log" 2>&1 &)
     echo "Open http://127.0.0.1:3010"

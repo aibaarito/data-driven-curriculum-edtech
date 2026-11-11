@@ -133,13 +133,16 @@ class ImportBatch(Base):
     __tablename__ = "import_batches"
     id: Mapped[int] = mapped_column(primary_key=True)
     filename: Mapped[str] = mapped_column(String(255))
-    status: Mapped[str] = mapped_column(String(16), default="preview")  # preview|committed|discarded
+    status: Mapped[str] = mapped_column(String(16), default="preview")  # preview|committed|discarded|expired
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     total_rows: Mapped[int] = mapped_column(Integer, default=0)
     valid_rows: Mapped[int] = mapped_column(Integer, default=0)
     inserted_rows: Mapped[int] = mapped_column(Integer, default=0)
     validation: Mapped[dict] = mapped_column(JSONB, default=dict)
-    staged_rows: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    # none_as_null: clearing staged rows must store SQL NULL (not JSON null) so purges are visible to IS NULL checks
+    staged_rows: Mapped[list | None] = mapped_column(JSONB(none_as_null=True), nullable=True)
+    # Previews expire; expired/failed previews have their staged rows purged (see services/previews.py).
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
 
 
 class AssessmentResult(Base):

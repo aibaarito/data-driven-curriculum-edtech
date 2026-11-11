@@ -1,9 +1,10 @@
 """Builds the full, verified analysis context for a set of filters (shared by API, AI and reports)."""
 from __future__ import annotations
 
+import statistics
 from typing import Any
 
-from sqlalchemy import and_, select
+from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session
 
 from app import models as m
@@ -25,14 +26,34 @@ def hours_by_class(db: Session, f: an.Filters) -> dict[int, float]:
     return out
 
 
-def latest_run(db: Session, f: an.Filters) -> m.RecommendationRun | None:
-    q = select(m.RecommendationRun).order_by(m.RecommendationRun.created_at.desc(), m.RecommendationRun.id.desc())
-    if f.subject_id is not None:
-        q = q.where(m.RecommendationRun.subject_id == f.subject_id)
-    if f.grade is not None:
-        q = q.where(m.RecommendationRun.grade == f.grade)
+def latest_run(db: Session, subject_id: int, grade: int) -> m.RecommendationRun | None:
+    """Latest accepted (else proposed) plan for exactly this subject and grade."""
+    q = (select(m.RecommendationRun)
+         .where(m.RecommendationRun.subject_id == subject_id, m.RecommendationRun.grade == grade)
+         .order_by(m.RecommendationRun.created_at.desc(), m.RecommendationRun.id.desc()))
     accepted = db.scalars(q.where(m.RecommendationRun.status == "accepted")).first()
     return accepted or db.scalars(q.where(m.RecommendationRun.status == "proposed")).first()
+
+
+def plan_scope(db: Session, f: an.Filters, df) -> tuple[int | None, int | None, str | None]:
+    """Resolve (subject_id, grade) a grade-level hours plan may be shown for, or a note why none applies."""
+    grade = f.grade
+    if f.class_id is not None:
+        cls = db.get(m.SchoolClass, f.class_id)
+        if cls is not None:
+            if grade is not None and grade != cls.grade:
+                return None, None, "Выбранный класс не относится к выбранной параллели."
+            grade = cls.grade
+    subject = f.subject_id
+    if not df.empty:
+        if grade is None and df["grade"].nunique() == 1:
+            grade = int(df["grade"].iloc[0])
+        if subject is None and df["subject_id"].nunique() == 1:
+            subject = int(df["subject_id"].iloc[0])
+    if grade is None or subject is None:
+        return None, None, ("План часов составляется для одного предмета и одной параллели. Выберите их в фильтрах, "
+                            "чтобы включить рекомендацию.")
+    return subject, grade, None
 
 
 def is_synthetic(db: Session) -> bool:
@@ -57,11 +78,26 @@ def build_context(db: Session, f: an.Filters, include_run: bool = True) -> dict[
         "optimizer_status": None,
     }
     if include_run:
-        run = latest_run(db, f)
-        if run is not None:
-            ctx["optimizer"] = run.result
-            ctx["optimizer_status"] = run.status
-            ctx["optimizer_run_id"] = run.id
+        subject, grade, note = plan_scope(db, f, df)
+        ctx["optimizer_scope_note"] = note
+        if subject is not None:
+            run = latest_run(db, subject, grade)
+            if run is None:
+                ctx["optimizer_scope_note"] = (f"Для параллели {grade} по выбранному предмету рекомендация по часам ещё "
+                                               "не сформирована.")
+            else:
+                ctx["optimizer"] = run.result
+                ctx["optimizer_status"] = run.status
+                ctx["optimizer_run_id"] = run.id
+                notes = [f"План часов для {grade}-й параллели (единый для всех её классов)."]
+                if f.class_id or f.textbook_id or f.date_from or f.date_to:
+                    notes.append("Фильтры класса, учебника и периода к плану не применяются: он рассчитан по всей "
+                                 "параллели.")
+                last_import = db.scalar(select(func.max(m.ImportBatch.created_at))
+                                        .where(m.ImportBatch.status == "committed"))
+                if last_import is not None and run.created_at < last_import:
+                    notes.append("Рекомендация сформирована до последнего импорта данных и может быть устаревшей.")
+                ctx["optimizer_scope_note"] = " ".join(notes)
     return ctx
 
 
@@ -81,18 +117,31 @@ def filter_labels(db: Session, f: an.Filters) -> dict[str, str]:
 
 
 def topic_inputs_for(db: Session, subject_id: int, grade: int) -> list[dict[str, Any]]:
-    """Current hours (mean over classes of the grade), constraints and prerequisites of each topic."""
+    """Grade-level plan inputs per topic.
+
+    The optimizer works on ONE plan per grade (all classes of the grade follow it). Its baseline is the median of
+    the classes' imported hours rounded to 0.5 h — a value a real timetable can contain — instead of a fractional
+    mean; the spread across classes is reported so deviating classes stay visible.
+    """
     topics = db.scalars(select(m.Topic).where(m.Topic.subject_id == subject_id, m.Topic.grade == grade)
                         .order_by(m.Topic.order_index, m.Topic.code)).all()
-    f = an.Filters(subject_id=subject_id, grade=grade)
-    hours = an.mean_hours_by_topic(db, f)
+    h, c = m.ClassTopicHours, m.SchoolClass
+    per_topic: dict[int, list[float]] = {}
+    for topic_id, hours in db.execute(select(h.topic_id, h.hours).join(c, c.id == h.class_id)
+                                      .where(c.grade == grade, h.topic_id.in_([t.id for t in topics]))):
+        per_topic.setdefault(topic_id, []).append(hours)
     prereq: dict[int, list[int]] = {}
     for tp in db.scalars(select(m.TopicPrerequisite).where(m.TopicPrerequisite.topic_id.in_([t.id for t in topics]))):
         prereq.setdefault(tp.topic_id, []).append(tp.prerequisite_id)
-    _ = and_
-    return [
-        {"topic_id": t.id, "code": t.code, "name": t.name, "current_hours": round(hours.get(t.id, 0.0), 2),
-         "min_hours": t.min_hours, "max_hours": t.max_hours, "priority": t.priority,
-         "prerequisites": prereq.get(t.id, []), "has_hours_data": t.id in hours}
-        for t in topics
-    ]
+    out = []
+    for t in topics:
+        vals = sorted(per_topic.get(t.id, []))
+        median = float(statistics.median(vals)) if vals else 0.0
+        out.append({
+            "topic_id": t.id, "code": t.code, "name": t.name, "current_hours": round(median * 2) / 2,
+            "class_hours_mean": round(sum(vals) / len(vals), 2) if vals else None,
+            "class_hours_min": vals[0] if vals else None, "class_hours_max": vals[-1] if vals else None,
+            "classes_with_hours": len(vals),
+            "min_hours": t.min_hours, "max_hours": t.max_hours, "priority": t.priority,
+            "prerequisites": prereq.get(t.id, []), "has_hours_data": bool(vals)})
+    return out

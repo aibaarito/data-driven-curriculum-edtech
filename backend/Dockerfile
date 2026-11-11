@@ -1,4 +1,5 @@
-FROM python:3.12-slim
+# Same Python minor version the test suite was run with.
+FROM python:3.14-slim
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 WORKDIR /app
 COPY requirements.txt .

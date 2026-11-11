@@ -191,13 +191,14 @@ function ReportView({ report }: { report: Report }) {
           {c.optimizer ? (
             <>
               <p className="mb-2 text-muted-foreground">Статус: {c.optimizer_status_label}. Рекомендация не является прогнозом результатов.</p>
+              {c.optimizer_scope_note && <p className="mb-2 text-muted-foreground" data-testid="plan-scope">{c.optimizer_scope_note}</p>}
               <ul className="space-y-1">
                 {c.optimizer.rows.filter((r) => r.delta !== 0).map((r) => (
                   <li key={r.topic_id}><b>{r.name}</b>: {r.current_hours} → {r.proposed_hours} ч. <span className="text-muted-foreground">{r.explanation}</span></li>
                 ))}
               </ul>
             </>
-          ) : <p className="text-muted-foreground">Рекомендация для этих фильтров не сформирована.</p>}
+          ) : <p className="text-muted-foreground" data-testid="plan-scope">{c.optimizer_scope_note ?? "Рекомендация для этих фильтров не сформирована."}</p>}
         </Section>
         {c.insights && (
           <Section title={`5. Пояснения (${c.insights.mode === "llm" ? "языковая модель, проверено" : "детерминированный режим"})`} kind="observation">

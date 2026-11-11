@@ -78,3 +78,28 @@ describe("schemas", () => {
     expect(totalHoursSchema.safeParse(0).success).toBe(false);
   });
 });
+
+describe("changed contracts", () => {
+  it("surfaces optimizer policy infeasibility with its code and details", () => {
+    const e = errorFromBody(422, { detail: { message: "Нельзя распределить", details: ["правило"], code: "POLICY_INFEASIBLE" } });
+    expect(e.code).toBe("POLICY_INFEASIBLE");
+    expect(e.details).toEqual(["правило"]);
+  });
+  it("sends the admin token only as a request header", async () => {
+    const calls: { url: string; init: RequestInit }[] = [];
+    const orig = globalThis.fetch;
+    globalThis.fetch = (async (url: string, init: RequestInit) => {
+      calls.push({ url, init });
+      return new Response(JSON.stringify({ reset: true }), { status: 200 });
+    }) as typeof fetch;
+    try {
+      const { api } = await import("./api");
+      await api.post("/api/admin/reset", { confirm: "УДАЛИТЬ" }, { "X-Admin-Token": "secret-token" });
+    } finally {
+      globalThis.fetch = orig;
+    }
+    const headers = calls[0].init.headers as Record<string, string>;
+    expect(headers["X-Admin-Token"]).toBe("secret-token");
+    expect(String(calls[0].init.body)).not.toContain("secret-token");
+  });
+});

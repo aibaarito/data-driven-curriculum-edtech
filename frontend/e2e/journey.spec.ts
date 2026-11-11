@@ -26,7 +26,9 @@ test.describe.configure({ mode: "serial" });
 
 test.beforeAll(async ({ request }) => {
   // 1. Clean environment: wipe all data through the API (requires explicit confirmation word).
-  const r = await request.post("/api/admin/reset", { data: { confirm: "УДАЛИТЬ" } });
+  const adminToken = process.env.E2E_ADMIN_TOKEN;
+  if (!adminToken) throw new Error("E2E_ADMIN_TOKEN is required (the journey resets the dedicated E2E database)");
+  const r = await request.post("/api/admin/reset", { data: { confirm: "УДАЛИТЬ" }, headers: { "X-Admin-Token": adminToken } });
   expect(r.ok()).toBeTruthy();
   const health = await (await request.get("/api/health")).json();
   expect(health.database).toBe(true);
@@ -65,14 +67,17 @@ test("full methodologist journey", async ({ page }) => {
   const row = page.getByTestId("topics-table").getByRole("row", { name: /Формулы сокращённого умножения/ });
   await expect(row).toContainText("Трудная");
   await row.click();
-  await expect(page.getByTestId("topic-detail")).toContainText("нет статистически значимого прироста");
+  await expect(page.getByTestId("topic-detail")).toContainText("не установлено");
+  await expect(page.getByTestId("topic-detail")).toContainText("не доказывает отсутствие эффекта");
   await shot(page, "04-topics");
 
   // 7. Textbook comparison: grade 7 has enough evidence for an adjusted estimate, grade 8 does not.
   await page.goto("/textbooks?grade=7");
-  await expect(page.getByTestId("verdict-text").first()).toContainText("После поправки на исходный уровень");
-  await expect(page.getByTestId("verdict-text").first()).toContainText("не доказательство");
-  await expect(page.getByTestId("verdict-text").first()).toContainText("Средний прирост от входной к итоговой диагностике");
+  // class-level inference: 6 classes -> an exploratory finding, never a causal claim
+  await expect(page.getByTestId("verdict-text").first()).toContainText("Предварительный вывод (всего 6 классов)");
+  await expect(page.getByTestId("verdict-text").first()).toContainText("С поправкой на исходный уровень");
+  await expect(page.getByTestId("verdict-text").first()).toContainText("не доказательство причинного эффекта");
+  await expect(page.getByTestId("evidence-level").first()).toHaveText("Предварительный вывод");
   await expect(page.getByText("Разница прироста pre→post").first()).toBeVisible();
   await shot(page, "05-textbooks-grade7");
   await page.goto("/textbooks?grade=8");
@@ -88,15 +93,24 @@ test("full methodologist journey", async ({ page }) => {
   await expect(checks).toContainText("Сумма часов равна заданной — 82 из 82 ч");
   await expect(checks.locator("li")).toHaveCount(5);
   await expect(checks.locator("svg.text-danger")).toHaveCount(0);
-  await expect(page.getByTestId("allocation-table")).toContainText("не значим — нужен пересмотр методики");
+  await expect(page.getByTestId("allocation-table")).toContainText("изменение от входной диагностики не установлено");
+  await expect(page.getByTestId("policy-checks")).toContainText("соблюдено");
   await shot(page, "06-optimizer");
   await page.getByTestId("accept-run").click();
   await expect(page.getByTestId("run-status")).toHaveText("Принята");
 
-  // Infeasible constraints produce an explicit error.
+  // Infeasible hard constraints produce an explicit error.
   await page.locator("#total").fill("10");
   await page.getByTestId("run-optimizer").click();
   await expect(page.getByTestId("optimizer-error")).toContainText("меньше суммы минимумов");
+  // Cutting the total is refused by policy unless relaxation is explicitly allowed; then it is reported.
+  await page.locator("#total").fill("70");
+  await page.getByTestId("run-optimizer").click();
+  await expect(page.getByTestId("optimizer-error")).toContainText("без нарушения правил");
+  await page.getByLabel(/Разрешить явное ослабление/).check();
+  await page.getByTestId("run-optimizer").click();
+  await expect(page.getByTestId("policy-checks")).toContainText("ослаблено по запросу");
+  await expect(page.getByTestId("allocation-table")).toContainText("уменьшения общего объёма");
 
   // 9. Explanation grounded in verified data (deterministic mode — no API key in this environment).
   await page.goto("/insights?grade=7");
@@ -111,6 +125,7 @@ test("full methodologist journey", async ({ page }) => {
   await page.goto("/reports?grade=7");
   await page.getByTestId("create-report").click();
   await expect(page.getByTestId("report-view")).toContainText("Ограничения данных");
+  await expect(page.getByTestId("plan-scope")).toContainText("7-й параллели");
   await shot(page, "08-report");
   const [download] = await Promise.all([page.waitForEvent("download"), page.getByTestId("download-pdf").click()]);
   const file = await download.path();

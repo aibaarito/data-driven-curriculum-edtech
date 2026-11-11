@@ -19,6 +19,13 @@ import { KIND_LABEL, ci, date, int, num, pct, signed } from "@/lib/format";
 import type { TopicStat, TopicsResponse } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
+const DIRECTION_LABEL = {
+  increase: "значимый рост",
+  decline: "значимое снижение",
+  inconclusive: "изменение не установлено",
+  insufficient: "мало пар для оценки",
+} as const;
+
 export function TopicsView() {
   return (
     <RequireData>
@@ -61,7 +68,8 @@ function TopicsContent() {
         <CardHeader>
           <CardTitle>Показатели по темам</CardTitle>
           <CardDescription>
-            Освоение — по итоговым и текущим оцениваниям; прирост — парные pre/post в одной группе сравнения (95% ДИ).
+            Освоение — объединённые баллы по итоговым и текущим оцениваниям (Σ/Σ); медиана — по ученикам; изменение —
+            парные pre/post в одной группе сравнения с поправкой Бонферрони на число тем.
             Пороги: трудная &lt; {s.difficult_threshold}%, внимание &lt; {s.watch_threshold}%, минимум {s.min_students_topic} учеников —{" "}
             <Link href="/settings" className="text-primary underline-offset-4 hover:underline">изменить</Link>.
           </CardDescription>
@@ -77,7 +85,7 @@ function TopicsContent() {
                   <TableHead className="text-right">Учеников</TableHead>
                   <TableHead className="text-right">Оценив.</TableHead>
                   <TableHead className="text-right">Прирост, п.п.</TableHead>
-                  <TableHead className="text-right">Часы</TableHead>
+                  <TableHead className="text-right">Часы (ср. по классам)</TableHead>
                   <TableHead>Статус</TableHead>
                 </TableRow>
               </TableHeader>
@@ -103,8 +111,11 @@ function TopicsContent() {
                     <TableCell className="text-right tabular-nums">{tp.assessment_count}</TableCell>
                     <TableCell className="text-right tabular-nums">
                       {tp.gain ? (
-                        <span className={cn(tp.gain.significant ? "text-foreground" : "text-muted-foreground")}>
-                          {signed(tp.gain.mean_gain)}{!tp.gain.significant && " (н.з.)"}
+                        <span className={cn(tp.gain.direction === "decline" ? "text-danger" : tp.gain.significant
+                          ? "text-foreground" : "text-muted-foreground")} data-testid={`gain-${tp.code}`}>
+                          {tp.gain.direction === "insufficient" ? "мало пар" : signed(tp.gain.mean_gain)}
+                          {tp.gain.direction === "inconclusive" && " (н.у.)"}
+                          {tp.gain.direction === "decline" && " ↓"}
                         </span>
                       ) : "—"}
                     </TableCell>
@@ -115,7 +126,8 @@ function TopicsContent() {
               </TableBody>
             </Table>
           </div>
-          <p className="mt-2 text-xs text-muted-foreground">н.з. — статистически не значимо (95% ДИ включает ноль). Нажмите на тему, чтобы открыть детали.</p>
+          <p className="mt-2 text-xs text-muted-foreground">н.у. — изменение не установлено (интервал с поправкой на число тем включает ноль; это не доказывает отсутствие
+            эффекта). ↓ — статистически значимое снижение. Нажмите на тему, чтобы открыть детали.</p>
         </CardContent>
       </Card>
 
@@ -152,7 +164,7 @@ function TopicDetail({ topic, data }: { topic: TopicStat; data: TopicsResponse }
             <Metric k="Освоение" v={pct(topic.mastery)} />
             <Metric k="Среднее (95% ДИ)" v={`${pct(topic.mean)}`} sub={ci(topic.ci_low, topic.ci_high)} />
             <Metric k="Медиана" v={pct(topic.median)} />
-            <Metric k="Ст. отклонение" v={num(topic.sd)} />
+            <Metric k="Среднее по классам" v={pct(topic.class_mean)} sub={`${topic.class_count} кл., каждый с равным весом`} />
           </div>
         </CardContent>
       </Card>
@@ -167,10 +179,13 @@ function TopicDetail({ topic, data }: { topic: TopicStat; data: TopicsResponse }
           </div>
           {g ? (
             <div className="space-y-1">
-              <div className="font-medium">Прирост pre → post ({g.n_paired} пар)</div>
+              <div className="font-medium">Изменение pre → post ({g.n_paired} пар)</div>
               <div>{pct(g.pre_mean)} → {pct(g.post_mean)}: <b>{signed(g.mean_gain, " п.п.")}</b></div>
-              <div className="text-muted-foreground">95% ДИ: {ci(g.ci_low, g.ci_high)}; p = {g.p_value ?? "—"}; нормализованный прирост g = {num(g.normalized_gain, 2)}</div>
-              <Badge variant="outline">{g.significant ? "статистически значимо" : "не значимо"}</Badge>
+              <div className="text-muted-foreground">
+                {g.ci_level}% ДИ (поправка на {g.family_size} тем): {ci(g.ci_low, g.ci_high)}; p с поправкой ={" "}
+                {g.p_value_adjusted ?? "—"}; нормализованный прирост g = {num(g.normalized_gain, 2)}
+              </div>
+              <Badge variant="outline" data-testid="gain-direction">{DIRECTION_LABEL[g.direction]}</Badge>
             </div>
           ) : (
             <p className="text-muted-foreground">Нет пары входной и итоговой диагностики — прирост не рассчитывается.</p>

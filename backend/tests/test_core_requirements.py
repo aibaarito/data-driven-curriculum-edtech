@@ -93,9 +93,12 @@ def test_req3_textbook_comparison_uses_baseline_gain_and_uncertainty(demo):
     assert pair["raw"]["ci_low"] < 0 < pair["raw"]["ci_high"]
     # … but group B started lower (baseline) and improved more (gain): both reported with CIs
     assert pair["baseline_diff"] < -3
-    assert pair["adjusted"]["ci_low"] > 0 and pair["adjusted"]["clusters"] == 6
-    assert pair["gain"]["ci_low"] > 0 and pair["gain"]["method"].startswith("кластеризованные")
-    assert pair["verdict"] == "observed_difference"
+    # inference uses classes as units: 6 classes, 3 parameters -> df = 3
+    assert pair["inference_unit"] == "class" and pair["adjusted"]["n_classes"] == 6 and pair["adjusted"]["df"] == 3
+    assert pair["adjusted"]["ci_low"] > 0
+    assert pair["gain"]["ci_low"] > 0 and pair["gain"]["method"].startswith("Welch по среднему приросту")
+    assert pair["verdict"] == "observed_difference" and pair["evidence_level"] == "exploratory"
+    assert pair["verdict_text"].startswith("Предварительный вывод (всего 6 классов)")
     assert "не доказательство причинного эффекта" in pair["verdict_text"]
     assert any("Исходный уровень различается" in c for c in pair["confounders"])
     tb = {t["code"]: t for t in res["textbooks"]}
@@ -130,31 +133,30 @@ def test_req3_insufficient_evidence_is_explicit(demo):
 
 
 def test_req3_contradicting_gain_blocks_verdict():
-    """Lord's paradox: group 2 starts higher and ends slightly higher (outcome independent of baseline).
-    Baseline-adjusted outcome favours group 2, gain favours group 1 → no textbook may be declared better."""
+    """Lord's paradox at class level: outcome does not depend on baseline within textbooks, textbook B classes
+    start higher and end slightly higher. Adjusted outcome favours B, gain favours A -> no verdict."""
     from app.services.settings_store import AnalysisSettings
     from app.services.textbooks import compare_textbooks
     rows, sid = [], 0
     rng = np.random.default_rng(0)
-    for tb, base, post_mean in ((1, 40, 60), (2, 60, 65)):
-        for c in range(3):
+    for tb, class_pre, post_mean in ((1, (35, 40, 45), 60), (2, (55, 60, 65), 65)):
+        for c, pre_mu in enumerate(class_pre):
+            post_c = post_mean + rng.normal(0, 0.5)
             for _ in range(25):
                 sid += 1
-                pre = base + rng.normal(0, 3)
-                post = post_mean + rng.normal(0, 3)
-                for kind, aid, v in (("pre", 1, pre), ("post", 2, post)):
+                for kind, aid, v in (("pre", 1, pre_mu + rng.normal(0, 2)), ("post", 2, post_c + rng.normal(0, 2))):
                     rows.append({**{k: None for k in COLUMNS}, "student_id": sid, "class_id": tb * 10 + c,
                                  "class_name": f"C{tb}{c}", "grade": 7, "subject_id": 1, "topic_id": 1, "topic_code": "T",
                                  "topic_name": "T", "topic_order": 1, "assessment_id": aid, "assessment_code": f"A{aid}",
                                  "kind": kind, "comparison_group": "G", "textbook_id": tb, "textbook_code": f"TB{tb}",
                                  "textbook_name": f"TB{tb}", "item_id": "_total", "score": round(v), "max_score": 100})
     df = pd.DataFrame(rows, columns=COLUMNS)
-    g = student_gains(df)
-    assert len(g) == 150
+    assert len(student_gains(df)) == 150
     pair = compare_textbooks(df, AnalysisSettings())["pairs"][0]
-    assert pair["gain"]["diff"] < 0 and pair["gain"]["ci_high"] < 0
+    assert pair["adjusted"]["ci_low"] > 0, pair["adjusted"]
+    assert pair["gain"]["ci_high"] < 0, pair["gain"]
     assert pair["verdict"] == "insufficient_evidence"
-    assert any("в разные стороны" in r for r in pair["reasons"]), (pair["adjusted"], pair["reasons"])
+    assert any("в разные стороны" in r for r in pair["reasons"]), pair["reasons"]
 
 
 # ---------------------------------------------------------------- 4. teaching-hour recommendations
@@ -175,7 +177,9 @@ def test_req4_recommendation_is_justified_and_constrained(demo):
             assert r["delta"] >= 0  # underperforming topics never lose hours
     assert rows["Формулы сокращённого умножения"]["delta"] > 0
     assert rows["Линейная функция"]["delta"] < 0  # mastered topic releases time
-    assert "не значим" in rows["Формулы сокращённого умножения"]["explanation"]
+    fsu = rows["Формулы сокращённого умножения"]
+    assert fsu["gain_direction"] == "inconclusive" and "не установлено" in fsu["explanation"]
+    assert "осваивается" not in fsu["explanation"]
     assert any("не гарантирует" in w for w in run["warnings"])
     # specialist review: accept, then the plan is stored and reported
     assert client.post(f"/api/optimizer/runs/{run['run_id']}/decision", json={"decision": "accept"}).json()["status"] == "accepted"

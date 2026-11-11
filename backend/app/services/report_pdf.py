@@ -56,6 +56,8 @@ def _table(header: list[str], rows: list[list[Any]], st, widths=None) -> Table:
     return t
 
 
+DIRECTION_RU = {"increase": "рост (значимо)", "decline": "снижение (значимо)", "inconclusive": "не установлено",
+                "insufficient": "мало данных"}
 STATUS_RU = {"difficult": "трудная", "watch": "внимание", "ok": "норма", "insufficient_data": "мало данных",
              "no_outcome_data": "нет данных"}
 
@@ -86,16 +88,23 @@ def render_pdf(report: dict[str, Any]) -> bytes:
 
     el.append(_p("2. Результаты по темам (наблюдаемые данные)", st["h2"]))
     rows = []
+    level = None
     for t in c["topics"]:
         g = t.get("gain") or {}
-        rows.append([t["name"], t["mastery"], t["median"], t["student_count"], t["assessment_count"],
+        level = level or g.get("ci_level")
+        rows.append([t["name"], t["mastery"], t["median"], t["student_count"],
                      g.get("mean_gain"), f"{g['ci_low']}…{g['ci_high']}" if g.get("ci_low") is not None else None,
-                     t.get("hours"), STATUS_RU.get(t["status"], t["status"])])
-    el.append(_table(["Тема", "Освоение %", "Медиана %", "Учен.", "Оцен.", "Прирост п.п.", "95% ДИ", "Часы", "Статус"],
-                     rows, st, [44 * mm, 15 * mm, 15 * mm, 11 * mm, 11 * mm, 16 * mm, 20 * mm, 11 * mm, 16 * mm]))
+                     DIRECTION_RU.get(g.get("direction"), "—"), t.get("hours"), STATUS_RU.get(t["status"], t["status"])])
+    ci_head = f"ДИ {level:g}%" if level else "ДИ"
+    el.append(_table(["Тема", "Освоение %", "Медиана %", "Учен.", "Изменение п.п.", ci_head, "Динамика", "Часы (ср.)",
+                      "Статус"], rows, st,
+                     [40 * mm, 14 * mm, 14 * mm, 11 * mm, 16 * mm, 19 * mm, 20 * mm, 11 * mm, 16 * mm]))
     th = c["settings"]
     el.append(_p(f"Пороги: трудная < {th['difficult_threshold']}%, внимание < {th['watch_threshold']}%, минимум "
-                 f"{th['min_students_topic']} учеников для классификации.", st["small"]))
+                 f"{th['min_students_topic']} учеников для классификации. Освоение — объединённые баллы (Σ/Σ), "
+                 "медиана — по ученикам. «Часы (ср.)» — среднее по классам (план часов ниже использует медиану по классам). "
+                 "Интервалы изменения — с поправкой Бонферрони на число тем; «не установлено» "
+                 "не означает отсутствия эффекта.", st["small"]))
     for t in c["topics"]:
         if t["status"] in ("difficult", "watch"):
             el.append(_p(f"• {t['name']}: {t['interpretation']}", st["body"]))
@@ -107,9 +116,13 @@ def render_pdf(report: dict[str, Any]) -> bytes:
             [s["name"], s["students"], s["classes"], s["mean"],
              f"{s['ci_low']}…{s['ci_high']}" if s.get("ci_low") is not None else None, s["baseline_mean"],
              s["mean_hours_per_class"]] for s in tb["textbooks"]], st))
+        el.append(_p("Показатели таблицы описательные (по ученикам). Выводы о различии строятся по классам: учебник "
+                     "назначается классу, поэтому независимые наблюдения — классы.", st["small"]))
         for pr in tb["pairs"]:
             el.append(Spacer(1, 3))
             el.append(_p(f"{pr['name_a']} vs {pr['name_b']}: {pr['verdict_text']}", st["body"]))
+            el.append(_p(f"Классов в анализе: {pr.get('classes_a', 0)} и {pr.get('classes_b', 0)}; уровень интервалов "
+                         f"{pr.get('ci_level', 95):g}%.", st["small"]))
             for r in pr.get("reasons") or []:
                 el.append(_p(f"– {r}", st["small"]))
             for r in pr.get("confounders") or []:
@@ -122,14 +135,19 @@ def render_pdf(report: dict[str, Any]) -> bytes:
     if opt:
         el.append(_p(f"Статус рекомендации: {c.get('optimizer_status_label', c.get('optimizer_status'))}. "
                      f"Всего часов: {opt['total_hours']}.", st["body"]))
+        if c.get("optimizer_scope_note"):
+            el.append(_p(c["optimizer_scope_note"], st["small"]))
+        relaxed = opt.get("relaxed_policies") or []
+        if relaxed:
+            el.append(_p("Ослабленные по запросу правила: " + ", ".join(relaxed) + ".", st["small"]))
         el.append(_table(["Тема", "Сейчас, ч", "Предлагается, ч", "Изменение", "Обоснование"], [
             [r["name"], r["current_hours"], r["proposed_hours"], f"{r['delta']:+g}", r["explanation"]] for r in opt["rows"]],
             st, [38 * mm, 16 * mm, 20 * mm, 16 * mm, 88 * mm]))
         for w in opt.get("warnings") or []:
             el.append(_p(f"⚠ {w}", st["small"]))
     else:
-        el.append(_p("Рекомендация по часам для выбранных фильтров ещё не сформирована (выберите предмет и "
-                     "параллель в оптимизаторе).", st["body"]))
+        el.append(_p(c.get("optimizer_scope_note") or "Рекомендация по часам для выбранных фильтров отсутствует.",
+                     st["body"]))
 
     ins = c.get("insights")
     if ins:

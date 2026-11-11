@@ -134,10 +134,17 @@ def test_filters_validation(client):
     assert client.get("/api/analytics/overview?date_from=2026-01-01&date_to=2025-01-01").status_code == 422
 
 
-def test_reset_requires_confirmation(client):
+def test_reset_requires_admin_token_and_confirmation(client):
+    from tests.conftest import ADMIN_TOKEN
     import_demo(client)
-    assert client.post("/api/admin/reset", json={"confirm": "yes"}).status_code == 422
-    assert client.post("/api/admin/reset", json={"confirm": "УДАЛИТЬ"}).status_code == 200
+    assert client.post("/api/admin/reset", json={"confirm": "УДАЛИТЬ"}).status_code == 403  # no admin token
+    assert client.post("/api/admin/reset", json={"confirm": "УДАЛИТЬ"},
+                       headers={"X-Admin-Token": "wrong-token-wrong-token"}).status_code == 403
+    assert client.post("/api/admin/reset", json={"confirm": "yes"},
+                       headers={"X-Admin-Token": ADMIN_TOKEN}).status_code == 422
+    assert client.get("/api/meta").json()["has_data"] is True
+    assert client.post("/api/admin/reset", json={"confirm": "УДАЛИТЬ"},
+                       headers={"X-Admin-Token": ADMIN_TOKEN}).status_code == 200
     assert client.get("/api/meta").json()["has_data"] is False
 
 

@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 
-// The browser only ever talks to /api/* on the frontend origin; Next.js proxies it to FastAPI.
-const API_URL = process.env.API_URL ?? "http://127.0.0.1:8010";
+// The browser only ever talks to /api/* on the frontend origin; src/app/api/[...path]/route.ts forwards it to
+// FastAPI (API_URL) and adds the server-side API_TOKEN.
 
 const nextConfig: NextConfig = {
   cacheComponents: true,
@@ -14,9 +14,6 @@ const nextConfig: NextConfig = {
         as: "*.css",
       },
     },
-  },
-  async rewrites() {
-    return [{ source: "/api/:path*", destination: `${API_URL}/api/:path*` }];
   },
   async headers() {
     return [

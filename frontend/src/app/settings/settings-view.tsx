@@ -35,6 +35,7 @@ export function SettingsView() {
   const [saving, setSaving] = useState(false);
   const [resetOpen, setResetOpen] = useState(false);
   const [confirm, setConfirm] = useState("");
+  const [adminToken, setAdminToken] = useState("");
   const form = useForm<SettingsForm>({ resolver: zodResolver(settingsSchema) });
 
   useEffect(() => {
@@ -59,10 +60,11 @@ export function SettingsView() {
 
   async function resetData() {
     try {
-      await api.post("/api/admin/reset", { confirm });
+      await api.post("/api/admin/reset", { confirm }, { "X-Admin-Token": adminToken });
       toast.success("Все данные удалены");
       setResetOpen(false);
       setConfirm("");
+      setAdminToken("");
       meta.reload();
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : "Ошибка");
@@ -77,6 +79,9 @@ export function SettingsView() {
           <CardDescription>Пороги влияют на классификацию тем, сравнение учебников и оптимизатор. Пересчёт выполняется сразу.</CardDescription>
         </CardHeader>
         <CardContent>
+          {data.notices.map((n) => (
+            <p key={n} className="mb-4 rounded-md border border-warning/50 bg-warning/10 p-3 text-sm" role="status">{n}</p>
+          ))}
           <form onSubmit={onSubmit} className="space-y-5" noValidate data-testid="settings-form">
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {FIELDS.map((f) => {
@@ -117,10 +122,19 @@ export function SettingsView() {
             <CardDescription>Лимит загрузки: {data.limits.max_upload_mb} МБ, до {data.limits.max_upload_rows.toLocaleString("ru-RU")} строк.</CardDescription>
           </CardHeader>
           <CardContent>
-            <Button variant="destructive" onClick={() => setResetOpen(true)} disabled={!meta.data?.has_data}>
+            <Button variant="destructive" onClick={() => setResetOpen(true)} disabled={!meta.data?.has_data || !data.access.reset_enabled}
+              data-testid="reset-button">
               <Trash2 className="size-4" /> Удалить все данные
             </Button>
-            <p className="mt-2 text-xs text-muted-foreground">Удаляет результаты, рекомендации и отчёты. Настройки анализа сохраняются.</p>
+            <p className="mt-2 text-xs text-muted-foreground">
+              {data.access.reset_enabled
+                ? "Удаляет результаты, рекомендации и отчёты. Требуется токен администратора. Настройки анализа сохраняются."
+                : "Удаление отключено. Оно включается только в среде разработки/тестирования (ENABLE_DATA_RESET и ADMIN_TOKEN)."}
+            </p>
+            <p className="mt-2 text-xs text-muted-foreground">
+              Доступ к API: {data.access.mode === "token" ? "по токену (настроен API_TOKEN)" : "только с этого компьютера (локальный демо-режим)"}.
+              Предпросмотр импорта хранится {data.limits.preview_ttl_minutes} мин.
+            </p>
           </CardContent>
         </Card>
       </div>
@@ -132,9 +146,11 @@ export function SettingsView() {
             <DialogDescription>Действие необратимо. Будут удалены все импортированные результаты, рекомендации и отчёты. Введите слово УДАЛИТЬ для подтверждения.</DialogDescription>
           </DialogHeader>
           <Input value={confirm} onChange={(e) => setConfirm(e.target.value)} placeholder="УДАЛИТЬ" aria-label="Подтверждение удаления" />
+          <Input type="password" autoComplete="off" value={adminToken} onChange={(e) => setAdminToken(e.target.value)}
+            placeholder="Токен администратора" aria-label="Токен администратора" />
           <DialogFooter>
             <Button variant="outline" onClick={() => setResetOpen(false)}>Отмена</Button>
-            <Button variant="destructive" disabled={confirm !== "УДАЛИТЬ"} onClick={resetData}>Удалить навсегда</Button>
+            <Button variant="destructive" disabled={confirm !== "УДАЛИТЬ" || !adminToken} onClick={resetData}>Удалить навсегда</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

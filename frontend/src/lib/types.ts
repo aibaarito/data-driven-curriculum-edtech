@@ -37,7 +37,13 @@ export interface AnalysisSettings {
   max_change_pct: number;
 }
 
+export type GainDirection = "increase" | "decline" | "inconclusive" | "insufficient";
+
 export interface Gain {
+  direction: GainDirection;
+  ci_level: number;
+  family_size: number;
+  p_value_adjusted: number | null;
   n_paired: number;
   pre_mean: number | null;
   post_mean: number | null;
@@ -66,10 +72,12 @@ export interface TopicStat {
   mastery: number | null;
   mean: number | null;
   median: number | null;
+  class_mean: number | null;
   sd: number | null;
   ci_low: number | null;
   ci_high: number | null;
   student_count: number;
+  class_count: number;
   assessment_count: number;
   result_count: number;
   distribution: Bin[];
@@ -100,7 +108,7 @@ export interface TopicTrendPoint {
 }
 
 export interface Opportunity {
-  type: "difficult_topic" | "watch_topic" | "hours_review";
+  type: "difficult_topic" | "watch_topic" | "hours_review" | "decline";
   topic_id: number;
   severity: "high" | "medium" | "low";
   text: string;
@@ -151,6 +159,8 @@ export interface TextbookSummary {
   mean_hours_per_class: number | null;
   mean_class_size: number | null;
   gain_mean: number | null;
+  gain_class_mean: number | null;
+  descriptive_note: string;
   gain_ci_low: number | null;
   gain_ci_high: number | null;
   gain_students: number;
@@ -161,18 +171,28 @@ export interface Estimate {
   ci_low: number | null;
   ci_high: number | null;
   p_value: number | null;
+  df?: number;
+  se?: number;
+  ci_level?: number;
+  method?: string;
 }
 
 export interface TextbookPair extends Verdict {
   textbook_a: number;
   textbook_b: number;
   common_items: number;
-  raw: (Estimate & { hedges_g: number | null; n_a: number; n_b: number }) | null;
-  adjusted: (Estimate & { se?: number; n: number; clusters: number; df: number }) | null;
+  raw: (Estimate & { hedges_g: number | null; n_a: number; n_b: number; student_level_diff: number | null }) | null;
+  adjusted: (Estimate & { n: number; n_classes: number; df: number }) | null;
   baseline_diff: number | null;
   hours_diff: number | null;
-  gain: { mean_a: number; mean_b: number; n_a: number; n_b: number; diff: number | null; ci_low: number | null;
-    ci_high: number | null; p_value: number | null; method: string } | null;
+  gain: (Estimate & { mean_a: number; mean_b: number; n_a: number; n_b: number }) | null;
+  inference_unit: "class";
+  ci_level: number;
+  pairs_in_family: number;
+  classes_a: number;
+  classes_b: number;
+  excluded_small_classes: number;
+  evidence_level: "insufficient" | "exploratory" | "observational";
   reasons: string[];
   confounders: string[];
 }
@@ -246,6 +266,11 @@ export interface OptimizerTopicInput {
   status: TopicStatus;
   gain: number | null;
   gain_significant: boolean | null;
+  gain_direction: GainDirection | null;
+  class_hours_mean: number | null;
+  class_hours_min: number | null;
+  class_hours_max: number | null;
+  classes_with_hours: number;
 }
 
 export interface OptimizerInputs {
@@ -277,6 +302,7 @@ export interface OptimizerRow {
   need_score: number | null;
   gain: number | null;
   gain_significant: boolean | null;
+  gain_direction: GainDirection | null;
   explanation: string;
 }
 
@@ -288,6 +314,9 @@ export interface OptimizerResult {
   constraints: ConstraintCheck[];
   warnings: string[];
   band_relaxed: boolean;
+  relaxed_policies: string[];
+  policy_checks: { policy: string; name: string; status: "applied" | "relaxed"; affected_topics: string[] }[];
+  plan_scope: "grade";
   method: string;
 }
 
@@ -308,6 +337,7 @@ export interface RunListItem {
 }
 
 export interface Finding {
+  entity?: string;
   title: string;
   text: string;
   kind: "observation" | "recommendation" | "limitation";
@@ -343,6 +373,7 @@ export interface Report extends Omit<ReportListItem, "labels"> {
     optimizer: OptimizerResult | null;
     optimizer_status: string | null;
     optimizer_status_label: string | null;
+    optimizer_scope_note: string | null;
     insights: InsightsResponse | null;
     limitations: string[];
     trend: TrendPoint[];
@@ -351,6 +382,8 @@ export interface Report extends Omit<ReportListItem, "labels"> {
 
 export interface SettingsResponse {
   analysis: AnalysisSettings;
+  notices: string[];
   llm: { enabled: boolean; provider: string | null; model: string | null };
-  limits: { max_upload_mb: number; max_upload_rows: number };
+  limits: { max_upload_mb: number; max_upload_rows: number; preview_ttl_minutes: number };
+  access: { mode: "token" | "local_only"; reset_enabled: boolean };
 }

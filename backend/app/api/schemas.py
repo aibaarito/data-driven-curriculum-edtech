@@ -33,6 +33,7 @@ class OptimizerRunBody(BaseModel):
     total_hours: float = Field(gt=0, le=10_000)
     target_mastery: float | None = Field(None, ge=0, le=100)
     max_change_pct: float | None = Field(None, ge=0, le=100)
+    allow_policy_relaxation: bool = False
     topics: list[TopicOverride] = Field(default_factory=list)
 
 

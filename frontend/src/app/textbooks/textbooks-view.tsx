@@ -7,6 +7,7 @@ import { FilterBar, useFilters } from "@/components/filter-bar";
 import { RequireData } from "@/components/page-frame";
 import { EmptyState, ErrorState, LoadingState } from "@/components/states";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useApi } from "@/hooks/use-api";
@@ -44,7 +45,8 @@ function Content() {
         <AlertDescription>
           Сравниваются только учебники одной параллели и только по общим итоговым заданиям. Главная оценка — разница с
           поправкой на исходный уровень (входную диагностику) и стандартными ошибками с учётом классов; её дополняет
-          сравнение прироста от входной к итоговой диагностике. Более высокое
+          сравнение прироста от входной к итоговой диагностике. Учебник назначается классу, поэтому выводы строятся по
+          классам, а не по ученикам. Более высокое
           среднее само по себе не означает, что учебник эффективнее.
         </AlertDescription>
       </Alert>
@@ -64,6 +66,8 @@ function Content() {
           <CardTitle>Сводка по учебникам</CardTitle>
           <CardDescription>
             {data.comparable ? `Итоговые показатели по ${data.common_items} общим заданиям (оценивание × тема).` : "Показатели по собственным заданиям каждого учебника — напрямую не сопоставимы."}
+            {" "}*Среднее и его интервал — описательные, по ученикам, без учёта группировки по классам; выводы о
+            различии — только в карточках сравнения выше.
           </CardDescription>
         </CardHeader>
         <CardContent className="overflow-x-auto">
@@ -71,9 +75,9 @@ function Content() {
             <TableHeader>
               <TableRow>
                 <TableHead>Учебник</TableHead><TableHead>Классы</TableHead><TableHead className="text-right">Учеников</TableHead>
-                <TableHead className="text-right">Среднее</TableHead><TableHead className="text-right">95% ДИ</TableHead>
+                <TableHead className="text-right">Среднее</TableHead><TableHead className="text-right">95% ДИ*</TableHead>
                 <TableHead className="text-right">Медиана</TableHead><TableHead className="text-right">Исходный уровень</TableHead>
-                <TableHead className="text-right">Прирост pre→post (95% ДИ)</TableHead>
+                <TableHead className="text-right">Прирост pre→post (по классам)</TableHead>
                 <TableHead className="text-right">Часов на класс</TableHead>
               </TableRow>
             </TableHeader>
@@ -91,7 +95,7 @@ function Content() {
                   <TableCell className="text-right tabular-nums">{pct(tb.median)}</TableCell>
                   <TableCell className="text-right tabular-nums">{pct(tb.baseline_mean)}</TableCell>
                   <TableCell className="text-right tabular-nums">
-                    {tb.gain_mean !== null ? <>{signed(tb.gain_mean, " п.п.")}<div className="text-xs text-muted-foreground">{ci(tb.gain_ci_low, tb.gain_ci_high)}</div></> : "—"}
+                    {tb.gain_class_mean !== null ? <>{signed(tb.gain_class_mean, " п.п.")}<div className="text-xs text-muted-foreground">{ci(tb.gain_ci_low, tb.gain_ci_high)}</div></> : "—"}
                   </TableCell>
                   <TableCell className="text-right tabular-nums">{num(tb.mean_hours_per_class)}</TableCell>
                 </TableRow>
@@ -129,27 +133,43 @@ function Content() {
   );
 }
 
+const EVIDENCE_LABEL = {
+  insufficient: "Недостаточно данных",
+  exploratory: "Предварительный вывод",
+  observational: "Наблюдаемая связь",
+} as const;
+
 function PairCard({ p }: { p: TextbookPair }) {
   const observed = p.verdict === "observed_difference";
+  const lvl = p.ci_level;
   return (
     <Card className={observed ? "border-primary/30" : "border-warning/40"}>
       <CardHeader>
-        <CardTitle className="flex items-start gap-2 text-base">
+        <CardTitle className="flex flex-wrap items-start gap-2 text-base">
           {observed ? <CheckCircle2 className="mt-0.5 size-5 shrink-0 text-primary" /> : <AlertTriangle className="mt-0.5 size-5 shrink-0 text-amber-600" />}
           <span>{p.name_a} <span className="text-muted-foreground">vs</span> {p.name_b}</span>
+          <Badge variant="outline" data-testid="evidence-level">{EVIDENCE_LABEL[p.evidence_level]}</Badge>
         </CardTitle>
         <CardDescription className="text-sm text-foreground" data-testid="verdict-text">{p.verdict_text}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
+        <p className="text-xs text-muted-foreground">
+          Единица анализа — класс (учебник назначается классу): классов {p.classes_a} и {p.classes_b}
+          {p.excluded_small_classes ? `, исключено малых классов: ${p.excluded_small_classes}` : ""}. Уровень интервалов {lvl}%
+          {p.pairs_in_family > 1 ? ` (поправка на ${p.pairs_in_family} сравнения)` : ""}.
+        </p>
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <Est title="Разница без поправки" sub={`«${p.name_b}» − «${p.name_a}»`} d={p.raw?.diff} lo={p.raw?.ci_low} hi={p.raw?.ci_high}
-            extra={p.raw ? `n = ${p.raw.n_a} / ${p.raw.n_b}; g Хеджеса = ${num(p.raw.hedges_g, 2)}` : undefined} />
-          <Est title="С поправкой на исходный уровень" sub="ANCOVA, ошибки с учётом классов" d={p.adjusted?.diff} lo={p.adjusted?.ci_low} hi={p.adjusted?.ci_high}
-            extra={p.adjusted ? `n = ${p.adjusted.n}, классов = ${p.adjusted.clusters}, p = ${p.adjusted.p_value ?? "—"}` : "не рассчитана"} highlight />
-          <Est title="Разница прироста pre→post" sub={p.gain ? `${signed(p.gain.mean_b, " п.п.")} против ${signed(p.gain.mean_a, " п.п.")}` : "нет пар pre/post"}
+          <Est title="Разница без поправки" sub={`средние классов, «${p.name_b}» − «${p.name_a}»`} level={lvl}
+            d={p.raw?.diff} lo={p.raw?.ci_low} hi={p.raw?.ci_high}
+            extra={p.raw ? `По ученикам (описательно): ${signed(p.raw.student_level_diff, " п.п.")}; g Хеджеса = ${num(p.raw.hedges_g, 2)}` : undefined} />
+          <Est title="С поправкой на исходный уровень" sub="ANCOVA по средним классов" level={lvl}
+            d={p.adjusted?.diff} lo={p.adjusted?.ci_low} hi={p.adjusted?.ci_high}
+            extra={p.adjusted ? `классов = ${p.adjusted.n_classes}, df = ${p.adjusted.df}, p = ${p.adjusted.p_value ?? "—"}` : "не оценивается"} highlight />
+          <Est title="Разница прироста pre→post" level={lvl}
+            sub={p.gain ? `средний прирост классов: ${signed(p.gain.mean_b, " п.п.")} против ${signed(p.gain.mean_a, " п.п.")}` : "не оценивается"}
             d={p.gain?.diff} lo={p.gain?.ci_low} hi={p.gain?.ci_high}
-            extra={p.gain ? `n = ${p.gain.n_a} / ${p.gain.n_b}; ${p.gain.method}` : undefined} />
-          <Est title="Разница исходного уровня" sub="входная диагностика" d={p.baseline_diff}
+            extra={p.gain ? `Welch по классам: ${p.gain.n_a} и ${p.gain.n_b}, df = ${p.gain.df ?? "—"}` : undefined} />
+          <Est title="Разница исходного уровня" sub="входная диагностика, средние классов" d={p.baseline_diff}
             extra={p.hours_diff !== null ? `Разница часов на класс: ${signed(p.hours_diff, " ч")}` : undefined} />
         </div>
         {p.reasons.length > 0 && (
@@ -167,15 +187,16 @@ function PairCard({ p }: { p: TextbookPair }) {
   );
 }
 
-function Est({ title, sub, d, lo, hi, extra, highlight }: {
+function Est({ title, sub, d, lo, hi, extra, highlight, level }: {
   title: string; sub: string; d?: number | null; lo?: number | null; hi?: number | null; extra?: string; highlight?: boolean;
+  level?: number;
 }) {
   return (
     <div className={highlight ? "rounded-lg border border-primary/25 bg-accent/40 p-3" : "rounded-lg border p-3"}>
       <div className="text-xs font-medium">{title}</div>
       <div className="text-[11px] text-muted-foreground">{sub}</div>
       <div className="mt-1 text-xl font-semibold tabular-nums">{signed(d ?? null, " п.п.")}</div>
-      {lo !== undefined && <div className="text-xs text-muted-foreground tabular-nums">95% ДИ: {ci(lo, hi)}</div>}
+      {level !== undefined && <div className="text-xs text-muted-foreground tabular-nums">{level}% ДИ: {ci(lo, hi)}</div>}
       {extra && <div className="mt-1 text-xs text-muted-foreground">{extra}</div>}
     </div>
   );

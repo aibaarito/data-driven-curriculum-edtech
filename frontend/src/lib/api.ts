@@ -32,13 +32,14 @@ export function errorFromBody(status: number, body: unknown): ApiError {
   return new ApiError("Ошибка запроса.", status);
 }
 
-async function request<T>(method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
+async function request<T>(method: string, path: string, body?: unknown, signal?: AbortSignal,
+  extraHeaders?: Record<string, string>): Promise<T> {
   let res: Response;
   try {
     res = await fetch(path, {
       method,
       signal,
-      headers: body !== undefined ? { "Content-Type": "application/json" } : undefined,
+      headers: { ...(body !== undefined ? { "Content-Type": "application/json" } : {}), ...(extraHeaders ?? {}) },
       body: body !== undefined ? JSON.stringify(body) : undefined,
       cache: "no-store",
     });
@@ -61,7 +62,8 @@ async function request<T>(method: string, path: string, body?: unknown, signal?:
 
 export const api = {
   get: <T>(path: string, signal?: AbortSignal) => request<T>("GET", path, undefined, signal),
-  post: <T>(path: string, body?: unknown) => request<T>("POST", path, body ?? {}),
+  post: <T>(path: string, body?: unknown, headers?: Record<string, string>) =>
+    request<T>("POST", path, body ?? {}, undefined, headers),
   put: <T>(path: string, body: unknown) => request<T>("PUT", path, body),
   del: <T>(path: string) => request<T>("DELETE", path),
 };

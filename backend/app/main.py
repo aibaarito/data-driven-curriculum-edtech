@@ -1,4 +1,5 @@
 import logging
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -8,17 +9,41 @@ from sqlalchemy.exc import OperationalError, SQLAlchemyError
 
 from app.api.routes import router
 from app.config import get_settings
+from app.db import get_db
+from app.security import AccessControlMiddleware, BodySizeLimitMiddleware
+from app.services.previews import purge_expired
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("ddc")
 
-app = FastAPI(title="Data-Driven Curriculum API", version="1.0.0")
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    st = get_settings()
+    if not st.api_token:
+        log.warning("API_TOKEN is not set: restricted local-demo mode, only loopback clients are served.")
+    if st.enable_data_reset and not st.reset_enabled:
+        log.warning("ENABLE_DATA_RESET is set but ADMIN_TOKEN is missing/too short (>=16 chars): reset stays disabled.")
+    try:
+        db = next(get_db())
+        try:
+            purge_expired(db)
+        finally:
+            db.close()
+    except Exception:  # noqa: BLE001 - the DB may be unavailable at boot; the health endpoint reports it
+        log.warning("Could not purge expired previews at startup")
+    yield
+
+
+app = FastAPI(title="Data-Driven Curriculum API", version="1.1.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[o.strip() for o in get_settings().cors_origins.split(",") if o.strip()],
     allow_methods=["GET", "POST", "PUT", "DELETE"],
-    allow_headers=["Content-Type"],
+    allow_headers=["Content-Type", "Authorization", "X-Admin-Token"],
 )
+app.add_middleware(BodySizeLimitMiddleware)
+app.add_middleware(AccessControlMiddleware)  # added last = outermost: unauthenticated requests never reach handlers
 app.include_router(router)
 
 

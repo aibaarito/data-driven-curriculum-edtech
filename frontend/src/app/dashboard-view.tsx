@@ -177,7 +177,8 @@ function Content({ data, query }: { data: OverviewResponse; query: string }) {
               {data.opportunities.map((o, i) => (
                 <li key={i} className={cn("rounded-md border border-l-4 bg-card p-3 text-sm", SEVERITY[o.severity])}>
                   <Badge variant="outline" className="mb-1 text-[11px]">
-                    {o.type === "hours_review" ? "Распределение часов" : o.type === "difficult_topic" ? "Трудная тема" : "Требует внимания"}
+                    {o.type === "hours_review" ? "Распределение часов" : o.type === "difficult_topic" ? "Трудная тема" :
+                      o.type === "decline" ? "Снижение результатов" : "Требует внимания"}
                   </Badge>
                   <p>{o.text}</p>
                 </li>

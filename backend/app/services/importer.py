@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import csv
 import io
+import zipfile
 import math
 import re
 from collections import Counter, defaultdict
@@ -49,6 +50,8 @@ ALL_COLUMNS = REQUIRED_COLUMNS + OPTIONAL_COLUMNS
 NON_EMPTY = [c for c in REQUIRED_COLUMNS if c != "textbook_id"]
 ASSESSMENT_KINDS = {"pre", "post", "current"}
 MAX_LISTED_ISSUES = 300
+MAX_XLSX_UNCOMPRESSED_BYTES = 100 * 1024 * 1024  # guard against zip bombs
+MAX_XLSX_MEMBERS = 2000
 DEFAULT_SCHOOL = "default"
 NAME_LIKE = re.compile(r"^[A-ZА-ЯЁ][a-zа-яё]+\s+[A-ZА-ЯЁ][a-zа-яё]+")
 CODE_RE = re.compile(r"^[A-Za-z0-9А-Яа-яЁё_.\-]{1,64}$")
@@ -120,8 +123,10 @@ def read_table(content: bytes, filename: str) -> pd.DataFrame:
     if lower.endswith(".xlsx"):
         if not content.startswith(b"PK"):
             raise FileFormatError("Файл имеет расширение .xlsx, но не является корректной книгой Excel.")
+        _check_xlsx_size(content)
         try:
-            df = pd.read_excel(io.BytesIO(content), dtype=str, engine="openpyxl", keep_default_na=False)
+            # dtype=object keeps Excel's native numbers (no locale ambiguity) and strings as typed.
+            df = pd.read_excel(io.BytesIO(content), dtype=object, engine="openpyxl", keep_default_na=False)
         except Exception as exc:  # corrupted workbook
             raise FileFormatError("Не удалось прочитать файл Excel: файл повреждён или имеет неверный формат.") from exc
     elif lower.endswith(".csv"):
@@ -151,17 +156,67 @@ def read_table(content: bytes, filename: str) -> pd.DataFrame:
     return df
 
 
-def _num(value: str) -> float | None:
-    v = value.strip().replace(" ", "").replace(" ", "")
-    if v.count(",") == 1 and "." not in v:
-        v = v.replace(",", ".")
+def _check_xlsx_size(content: bytes) -> None:
     try:
-        x = float(v)
-    except ValueError:
-        return None
-    if math.isnan(x) or math.isinf(x):
-        return None
-    return x
+        with zipfile.ZipFile(io.BytesIO(content)) as zf:
+            infos = zf.infolist()
+    except zipfile.BadZipFile as exc:
+        raise FileFormatError("Файл имеет расширение .xlsx, но не является корректной книгой Excel.") from exc
+    if len(infos) > MAX_XLSX_MEMBERS or sum(i.file_size for i in infos) > MAX_XLSX_UNCOMPRESSED_BYTES:
+        raise FileFormatError("Книга Excel слишком велика после распаковки. Сохраните данные в CSV или уменьшите файл.")
+
+
+# Accepted numeric text (documented in docs/IMPORT_FORMAT.md):
+#   * optional leading minus, digits, optional decimal part with "." OR "," as decimal separator: 7  7.5  7,5  -0,25
+#   * optional thousands grouping with spaces only (incl. non-breaking/narrow spaces): 1 000   1 000,5
+# Rejected as AMBIGUOUS_NUMBER (never guessed): a single "." or "," followed by exactly three digits with a non-zero
+#   integer part of 1-3 digits ("1,000", "2.500"), and values using both "." and "," ("1,000.5", "1.000,5").
+# Rejected as INVALID_NUMBER: anything else, including exponents, "inf", "nan", currency or percent signs.
+_GROUP_SPACES = re.compile("[ \u00a0\u202f\u2009]")
+_PLAIN_NUM = re.compile(r"^-?\d+(?:[.,]\d+)?$")
+_SPACE_GROUPED = re.compile("^-?\\d{1,3}(?:[ \u00a0\u202f\u2009]\\d{3})+(?:[.,]\\d+)?$")
+_AMBIGUOUS = re.compile(r"^-?[1-9]\d{0,2}[.,]\d{3}$")
+
+
+def parse_number(value: Any) -> tuple[float | None, str | None]:
+    """Return (number, None) or (None, error_code). Native Excel numbers are accepted as is."""
+    if isinstance(value, bool):
+        return None, "INVALID_NUMBER"
+    if isinstance(value, (int, float)):
+        x = float(value)
+        return (None, "INVALID_NUMBER") if (math.isnan(x) or math.isinf(x)) else (x, None)
+    v = str(value).strip()
+    if not v:
+        return None, "INVALID_NUMBER"
+    if "." in v and "," in v:
+        return None, "AMBIGUOUS_NUMBER"
+    if _SPACE_GROUPED.match(v):
+        v = _GROUP_SPACES.sub("", v)
+    elif _AMBIGUOUS.match(v):
+        return None, "AMBIGUOUS_NUMBER"
+    elif not _PLAIN_NUM.match(v):
+        return None, "INVALID_NUMBER"
+    x = float(v.replace(",", "."))
+    return (None, "INVALID_NUMBER") if (math.isnan(x) or math.isinf(x)) else (x, None)
+
+
+def _num(value: Any) -> float | None:
+    return parse_number(value)[0]
+
+
+NUMBER_HELP = "Допустимо: 7, 7.5 или 7,5; разряды — только пробелом (1 000)."
+
+
+def _cell_text(v: Any) -> str:
+    if v is None or (isinstance(v, float) and math.isnan(v)):
+        return ""
+    if isinstance(v, float) and v.is_integer():
+        return str(int(v))  # Excel stores integers as floats; keeps identifiers like 7 or 1001 readable
+    return str(v).strip()
+
+
+def _numeric_input(native: Any, text: str) -> Any:
+    return text if isinstance(native, str) or native is None else native
 
 
 def _date(value: str) -> date | None:
@@ -203,7 +258,8 @@ def validate_dataframe(df: pd.DataFrame, existing_loader: "Callable[[list[dict[s
     normalized: list[dict[str, Any]] = []
     for idx, raw in enumerate(records):
         rownum = idx + 2  # header is row 1
-        rec = {c: str(raw.get(c, "") if raw.get(c) is not None else "").strip() for c in ALL_COLUMNS}
+        native = {c: raw.get(c) for c in ALL_COLUMNS}
+        rec = {c: _cell_text(native[c]) for c in ALL_COLUMNS}
         if not any(rec[c] for c in ALL_COLUMNS):
             blank_rows += 1
             continue
@@ -224,7 +280,8 @@ def validate_dataframe(df: pd.DataFrame, existing_loader: "Callable[[list[dict[s
         out["school"] = rec["school"] or DEFAULT_SCHOOL
         for c in ("student_id", "topic_id", "assessment_id"):
             if not CODE_RE.match(rec[c]):
-                err(c, "INVALID_IDENTIFIER", f"Недопустимый идентификатор «{rec[c][:40]}» (до 64 символов, без пробелов).")
+                err(c, "INVALID_IDENTIFIER", f"Недопустимый идентификатор в столбце «{c}» (до 64 символов: буквы, "
+                                             "цифры, «-», «_», «.»; без пробелов). Значение не показывается.")
         if NAME_LIKE.match(rec["student_id"]):
             err("student_id", "POSSIBLE_PERSONAL_DATA", "Похоже на ФИО. Используйте только анонимные идентификаторы.")
         out["student_id"] = rec["student_id"]
@@ -237,9 +294,9 @@ def validate_dataframe(df: pd.DataFrame, existing_loader: "Callable[[list[dict[s
         if rec["item_id"] and not CODE_RE.match(rec["item_id"]):
             err("item_id", "INVALID_IDENTIFIER", "Недопустимый идентификатор задания.")
 
-        g = _num(rec["grade"])
+        g = _num(_numeric_input(native["grade"], rec["grade"]))
         if g is None or g != int(g) or not 1 <= g <= 12:
-            err("grade", "INVALID_GRADE", f"Параллель должна быть целым числом от 1 до 12 (получено «{rec['grade']}»).")
+            err("grade", "INVALID_GRADE", "Параллель должна быть целым числом от 1 до 12.")
         else:
             out["grade"] = int(g)
 
@@ -250,15 +307,15 @@ def validate_dataframe(df: pd.DataFrame, existing_loader: "Callable[[list[dict[s
 
         d = _date(rec["assessment_date"])
         if d is None:
-            err("assessment_date", "INVALID_DATE", f"Неверная дата «{rec['assessment_date']}» (ожидается ГГГГ-ММ-ДД).")
+            err("assessment_date", "INVALID_DATE", "Неверная дата (ожидается ГГГГ-ММ-ДД или ДД.ММ.ГГГГ).")
         out["assessment_date"] = d
 
-        score = _num(rec["score"])
-        max_score = _num(rec["max_score"])
-        if score is None:
-            err("score", "INVALID_NUMBER", f"Балл «{rec['score']}» не является числом.")
-        if max_score is None:
-            err("max_score", "INVALID_NUMBER", f"Максимальный балл «{rec['max_score']}» не является числом.")
+        score, score_err = parse_number(_numeric_input(native["score"], rec["score"]))
+        max_score, max_err = parse_number(_numeric_input(native["max_score"], rec["max_score"]))
+        if score_err:
+            err("score", score_err, "Балл не распознан как число. " + NUMBER_HELP)
+        if max_err:
+            err("max_score", max_err, "Максимальный балл не распознан как число. " + NUMBER_HELP)
         if score is not None and max_score is not None:
             if max_score <= 0:
                 err("max_score", "NON_POSITIVE_MAX", "Максимальный балл должен быть больше нуля.")
@@ -275,9 +332,11 @@ def validate_dataframe(df: pd.DataFrame, existing_loader: "Callable[[list[dict[s
             err("textbook_id", "INVALID_IDENTIFIER", "Недопустимый код учебника.")
 
         if rec["teaching_hours"]:
-            h = _num(rec["teaching_hours"])
-            if h is None or h < 0 or h > 1000:
-                err("teaching_hours", "INVALID_HOURS", "Часы должны быть неотрицательным числом.")
+            h, h_err = parse_number(_numeric_input(native["teaching_hours"], rec["teaching_hours"]))
+            if h_err == "AMBIGUOUS_NUMBER":
+                err("teaching_hours", h_err, "Часы записаны неоднозначно. " + NUMBER_HELP)
+            elif h is None or h < 0 or h > 1000:
+                err("teaching_hours", "INVALID_HOURS", "Часы должны быть неотрицательным числом. " + NUMBER_HELP)
             out["teaching_hours"] = h
         else:
             out["teaching_hours"] = None
@@ -292,9 +351,10 @@ def validate_dataframe(df: pd.DataFrame, existing_loader: "Callable[[list[dict[s
             ("topic_priority", "topic_priority", 1, 3, True),
         ):
             if rec[col]:
-                v = _num(rec[col])
+                v, v_err = parse_number(_numeric_input(native[col], rec[col]))
                 if v is None or v < lo or v > hi or (integer and v != int(v)):
-                    err(col, "INVALID_TOPIC_SETTING", f"Недопустимое значение «{rec[col]}» в «{col}».")
+                    err(col, v_err if v_err == "AMBIGUOUS_NUMBER" else "INVALID_TOPIC_SETTING",
+                        f"Недопустимое значение в «{col}» (допустимо от {lo} до {hi}). " + NUMBER_HELP)
                 out[key] = int(v) if (v is not None and integer) else v
             else:
                 out[key] = None
@@ -351,6 +411,18 @@ def _cross_row_checks(rows: list[dict[str, Any]], res: ValidationResult) -> None
             )
         else:
             seen[key] = r["_row"]
+
+    gran: dict[tuple, set[str]] = defaultdict(set)
+    first_row: dict[tuple, int] = {}
+    for r in rows:
+        k4 = (r["school"], r["student_id"], r["assessment_id"], r["topic_id"])
+        gran[k4].add("total" if r["item_id"] == "_total" else "items")
+        first_row.setdefault(k4, r["_row"])
+    for k4, kinds in gran.items():
+        if len(kinds) > 1:
+            res.errors.append(Issue(first_row[k4], "item_id", "MIXED_GRANULARITY",
+                                    "Для одного ученика, оценивания и темы есть и строка-итог (без item_id), и строки "
+                                    "по заданиям — баллы были бы учтены дважды. Оставьте один вариант."))
 
     _consistency(rows, lambda r: r["topic_id"],
                  lambda r: (r["topic_name"], r["subject"], r["grade"]), res, "topic_id",
@@ -424,41 +496,96 @@ def _summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 class ExistingState:
-    """Snapshot of what is already in the database, used to detect conflicts before commit."""
+    """Snapshot of what is already in the database, used to detect conflicts before commit.
+
+    Hard conflicts (errors) block the import; differing curriculum settings of existing topics and differing
+    textbook display names are reported as warnings because the stored values are kept and can only be changed
+    through the explicit topic-settings operation (PUT /api/topics/{id}).
+    """
 
     def __init__(self, topics: dict, assessments: dict, students: dict, class_tb: dict, results: dict,
-                 subject_by_code: dict | None = None):
+                 classes: dict | None = None, textbooks: dict | None = None, topic_settings: dict | None = None,
+                 granularity: dict | None = None, hours: dict | None = None):
         self.topics = topics  # code -> (name, subject_name, grade)
         self.assessments = assessments  # code -> (date, kind, subject_name, group)
         self.students = students  # (school, ext) -> class_name
         self.class_tb = class_tb  # (school, class, subject_name) -> textbook_code | None
         self.results = results  # (school, ext, assessment, topic, item) -> (score, max)
+        self.classes = classes or {}  # (school, class) -> grade
+        self.textbooks = textbooks or {}  # code -> (subject_name, name)
+        self.topic_settings = topic_settings or {}  # code -> {order, min, max, priority, prerequisites}
+        self.granularity = granularity or {}  # (school, ext, assessment, topic) -> {"total"} | {"items"}
+        self.hours = hours or {}  # (school, class, topic_code) -> hours
 
     def check(self, rows: list[dict[str, Any]], res: ValidationResult) -> None:
         dup_existing = 0
         reported: set[tuple] = set()
+
+        def once(key: tuple) -> bool:
+            if key in reported:
+                return False
+            reported.add(key)
+            return True
+
         for r in rows:
             t = self.topics.get(r["topic_id"])
-            if t and t != (r["topic_name"], r["subject"], r["grade"]) and ("t", r["topic_id"]) not in reported:
-                reported.add(("t", r["topic_id"]))
+            if t and t != (r["topic_name"], r["subject"], r["grade"]) and once(("t", r["topic_id"])):
                 res.errors.append(Issue(r["_row"], "topic_id", "CONFLICT_WITH_DB",
                                         "Тема с этим кодом уже существует с другим названием, предметом или параллелью."))
+            ts = self.topic_settings.get(r["topic_id"])
+            if ts is not None:
+                differs = []
+                for col, key in (("topic_order", "order"), ("topic_min_hours", "min"), ("topic_max_hours", "max"),
+                                 ("topic_priority", "priority")):
+                    if r[col] is not None and float(r[col]) != float(ts[key]):
+                        differs.append(col)
+                if r["topic_prerequisites"] and frozenset(r["topic_prerequisites"]) != ts["prerequisites"]:
+                    differs.append("topic_prerequisites")
+                if differs and once(("ts", r["topic_id"])):
+                    res.warnings.append(Issue(r["_row"], ", ".join(differs), "TOPIC_SETTINGS_DIFFER",
+                                              f"Параметры темы {r['topic_id']} в файле отличаются от сохранённых. "
+                                              "Сохранённые значения НЕ будут изменены импортом; измените их явно в "
+                                              "оптимизаторе часов."))
             a = self.assessments.get(r["assessment_id"])
-            if a and a != (r["assessment_date"], r["assessment_type"], r["subject"], r["comparison_group"]) and (
-                "a", r["assessment_id"]) not in reported:
-                reported.add(("a", r["assessment_id"]))
+            if a and a != (r["assessment_date"], r["assessment_type"], r["subject"], r["comparison_group"]) and once(
+                    ("a", r["assessment_id"])):
                 res.errors.append(Issue(r["_row"], "assessment_id", "CONFLICT_WITH_DB",
                                         "Оценивание с этим кодом уже загружено с другими параметрами."))
             s = self.students.get((r["school"], r["student_id"]))
-            if s is not None and s != r["class"] and ("s", r["student_id"]) not in reported:
-                reported.add(("s", r["student_id"]))
+            if s is not None and s != r["class"] and once(("s", r["school"], r["student_id"])):
                 res.errors.append(Issue(r["_row"], "class", "CONFLICT_WITH_DB",
                                         "Ученик уже числится в другом классе."))
+            g = self.classes.get((r["school"], r["class"]))
+            if g is not None and g != r["grade"] and once(("g", r["school"], r["class"])):
+                res.errors.append(Issue(r["_row"], "grade", "CONFLICT_WITH_DB",
+                                        f"Класс {r['class']} уже записан в параллели {g}; в файле указана другая."))
+            if r["textbook_id"]:
+                tb = self.textbooks.get(r["textbook_id"])
+                if tb is not None and tb[0] != r["subject"] and once(("tbs", r["textbook_id"])):
+                    res.errors.append(Issue(r["_row"], "textbook_id", "CONFLICT_WITH_DB",
+                                            f"Учебник {r['textbook_id']} уже используется для другого предмета."))
+                if (tb is not None and r["textbook_name"] and tb[1] != r["textbook_name"]
+                        and once(("tbn", r["textbook_id"]))):
+                    res.warnings.append(Issue(r["_row"], "textbook_name", "TEXTBOOK_NAME_DIFFERS",
+                                              f"Название учебника {r['textbook_id']} отличается от сохранённого; "
+                                              "сохранённое название не изменяется."))
             key_ct = (r["school"], r["class"], r["subject"])
-            if key_ct in self.class_tb and self.class_tb[key_ct] != r["textbook_id"] and ("c",) + key_ct not in reported:
-                reported.add(("c",) + key_ct)
+            if key_ct in self.class_tb and self.class_tb[key_ct] != r["textbook_id"] and once(("c",) + key_ct):
                 res.errors.append(Issue(r["_row"], "textbook_id", "CONFLICT_WITH_DB",
-                                        "Для класса уже записан другой учебник по этому предмету."))
+                                        "Для класса уже записан другой учебник (или его отсутствие) по этому предмету."))
+            hk = (r["school"], r["class"], r["topic_id"])
+            if r["teaching_hours"] is not None and hk in self.hours and self.hours[hk] != r["teaching_hours"] \
+                    and once(("h",) + hk):
+                res.warnings.append(Issue(r["_row"], "teaching_hours", "TEACHING_HOURS_REPLACED",
+                                          f"Часы темы {r['topic_id']} для класса {r['class']} изменятся: "
+                                          f"{self.hours[hk]:g} → {r['teaching_hours']:g} ч."))
+            k4 = (r["school"], r["student_id"], r["assessment_id"], r["topic_id"])
+            stored = self.granularity.get(k4)
+            incoming = "total" if r["item_id"] == "_total" else "items"
+            if stored and incoming not in stored and once(("gr",) + k4):
+                res.errors.append(Issue(r["_row"], "item_id", "MIXED_GRANULARITY",
+                                        "Для этого ученика, оценивания и темы в базе уже есть результаты в другом виде "
+                                        "(итог по теме или по заданиям) — баллы были бы учтены дважды."))
             k = (r["school"], r["student_id"], r["assessment_id"], r["topic_id"], r["item_id"])
             if k in self.results:
                 if self.results[k] == (r["score"], r["max_score"]):
@@ -468,6 +595,8 @@ class ExistingState:
                     res.errors.append(Issue(r["_row"], "score", "CONFLICT_WITH_DB",
                                             "Результат уже загружен с другим баллом. Исправления данных не "
                                             "выполняются автоматически."))
+            else:
+                r.pop("_skip", None)
         if dup_existing:
             res.warnings.append(Issue(None, None, "ALREADY_IMPORTED",
                                       f"{dup_existing} строк уже есть в базе с теми же значениями и будут пропущены."))

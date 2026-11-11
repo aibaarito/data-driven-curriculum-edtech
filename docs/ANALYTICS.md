@@ -1,76 +1,93 @@
 # Analytical methods
 
-All numbers are computed by deterministic backend code (`backend/app/services/`). The LLM never computes or alters a number.
+All numbers are computed by deterministic backend code (`backend/app/services/`). Language models never compute or alter
+a number. Results describe associations in observational, non-randomised school data — never causal effects.
 
-## Data model of a result
-One row = points obtained by one anonymous student on one topic (optionally one item) of one assessment.
-Assessment kinds: `pre` (diagnostic before instruction), `post` (final), `current` (during the year).
-`comparison_group` links a `pre` and a `post` assessment that measure the same skills.
+## Mastery and weighting — `analytics.topic_analytics`
+| Field | Definition | Weighting |
+|---|---|---|
+| `mastery` | Σ obtained / Σ available points × 100 over outcome assessments (`post`, `current`) | pooled points: larger assessments and larger classes weigh more |
+| `mean`, `median`, distribution | per-student percentage (student × topic, points within the student) | every student equal |
+| `class_mean` | mean of class means of the student percentages | every class equal |
 
-## Topic mastery — `analytics.mastery`
-```
-mastery = Σ obtained points / Σ available points × 100
-```
-* computed over **outcome** assessments only (`post`, `current`); `pre` is the baseline, not mastery;
-* validated on import: `max_score > 0`, `0 ≤ score ≤ max_score` (also DB CHECK constraints);
-* empty denominators return "no data" instead of dividing by zero.
+`pre` diagnostics are a baseline only. Classification (`difficult` / `watch` / `ok`) uses the pooled `mastery`
+with configurable thresholds and a minimum number of students. This is a documented choice, not a defect: when
+pooled and class-weighted values diverge strongly, class composition is driving the pooled number — the UI shows both.
 
-Also reported per topic: mean / median / SD of per-student percentages (student × topic, points-weighted),
-95% CI of the mean (t-distribution), number of students and assessments, histogram in 10-point bins,
-mastery per assessment (trend).
-
-## Learning gains — `analytics.learning_gains`
-Only students who have **both** a `pre` and a `post` result on the same topic in the **same** comparison group are paired.
-* mean gain = mean(post% − pre%), 95% CI (t), paired t-test p-value;
-* normalized class-average gain g = (post̄ − pr̄e) / (100 − pr̄e) (Hake).
-
-## Topic classification (thresholds configurable in Settings)
-| Condition | Status |
-|---|---|
-| no outcome data | `no_outcome_data` |
-| students < `min_students_topic` (10) | `insufficient_data` |
-| mastery < `difficult_threshold` (50) | `difficult` |
-| mastery < `watch_threshold` (65) | `watch` |
-| otherwise | `ok` |
-
-Low results are further split, without causal claims:
-* `low_no_baseline` — no diagnostic; weak prior knowledge and instruction problems cannot be told apart;
-* `low_but_improving` — significant positive gain: learning happens, slowly;
-* `low_no_measurable_gain` — no significant gain: signal for methodological review, cause not established.
+## Learning gains — `analytics.learning_gains`, `gain_stats`
+* Pairs: the same student, same topic, `pre` and `post` of the same `comparison_group`. Unrelated tests are never compared.
+* At least `min_students_topic` pairs are required; fewer → direction **insufficient** (no test).
+* **Multiple comparisons**: the family is every topic in the current analysis view with enough pairs (k). Each interval
+  uses the Bonferroni level 1 − 0.05/k; `p_value_adjusted = min(1, k·p)`. The direction is read from that interval, so
+  interval, adjusted p-value and conclusion always agree.
+* **Direction** (sign-aware): `increase` (interval > 0), `decline` (interval < 0), `inconclusive` (interval contains 0 —
+  this is *not* evidence of no effect), `insufficient`. A decline is never described as progress anywhere (analytics,
+  optimizer, explanations, AI facts, reports).
+* Interpretations: `low_but_improving`, `low_declining`, `low_no_measurable_gain` (= inconclusive), `low_gain_insufficient`,
+  `low_no_baseline`, `ok_but_declining`.
 
 ## Textbook comparison — `textbooks.compare_textbooks`
-1. Only textbooks used in the **same grade and subject** are paired.
-2. Only outcome items (assessment × topic) taken by students of **both** textbooks are used (controls assessment difficulty).
-3. Raw difference: Welch 95% CI and Hedges' g.
-4. Headline: **baseline-adjusted** difference — OLS `outcome% ~ 1 + textbook + pre% (+ grade)` with CR1
-   **cluster-robust** standard errors by class and t(G−1) critical values (students in a class are not independent).
-5. **Learning improvement**: per-student gain (post% − pre%) on the common topics, paired within the same comparison
-   group; per-textbook mean gain with 95% CI and a gain difference `gain ~ 1 + textbook (+ grade)` with cluster-robust
-   SEs (Welch fallback, labelled approximate, when there are fewer than 3 classes).
-6. Verdict `observed_difference` only if: ≥ `min_students_textbook` (30) per textbook, ≥ `min_classes_textbook` (2)
-   classes per textbook, a baseline exists, ≥ 3 classes overall, and the adjusted 95% CI excludes 0.
-   and the gain estimate does not point significantly in the opposite direction (Lord's-paradox guard).
-   Otherwise: **«Недостаточно данных, чтобы определить, какой учебник эффективнее.»** with the reasons.
-7. Confounders always listed: baseline gap, teaching-hours gap, class-size gap (≥ 15%), non-random assignment of classes (teacher, class composition).
-   The text explicitly states that the result is an association, not a causal effect.
+**Design.** A textbook is assigned to whole classes; students in a class share teacher, timetable and peers. The number
+of independent replicates is the number of classes, so inference uses classes as units (the audit showed that
+student-level/cluster-robust inference with 2–3 classes per textbook gave 9–14% false "differences").
+1. Only textbooks used in the same grade and subject are paired; only outcome items (assessment × topic) taken by both
+   are used (controls for assessment difficulty).
+2. Class table: per class, mean outcome %, mean baseline %, mean gain (post − pre). Classes with fewer than 5 students
+   with data are excluded and reported. Classes enter unweighted (each class is one replicate; unequal class sizes do not
+   let one large class dominate).
+3. **Adjusted difference**: OLS on class means `y_c = b0 + b1·textbook_c + b2·baseline_c (+ grade dummies)`, classical
+   SE, t with df = G − p. Requires df ≥ 2 (else "not estimable").
+4. **Gain difference**: Welch test on class-mean gains (Satterthwaite df), robust to unequal variances between textbooks.
+5. **Raw difference**: Welch on class means of the outcome. Student-level means, Hedges' g and the summary table are
+   labelled *descriptive*.
+6. Several textbook pairs in one view → Bonferroni level 1 − 0.05/m for all their intervals.
+7. **Verdict** `observed_difference` only if: ≥ max(setting, 3) eligible classes per textbook (stored settings below 3
+   are raised at load time and reported), ≥ `min_students_textbook` students per textbook, a baseline, estimable models,
+   and both the adjusted and the gain interval exclude 0 **with the same sign**. Otherwise «Недостаточно данных…» with
+   reasons. Fewer than 10 classes in total → labelled *exploratory* («Предварительный вывод»).
+8. Confounders always listed: non-random assignment (teacher, class composition, timetable), baseline gap, hours gap,
+   class-size gap, and measurement error of the baseline (residual confounding — the adjustment can be incomplete; the
+   adjusted and gain estimates may disagree, e.g. Lord's paradox, in which case no verdict is given).
+
+**Simulation** (`backend/scripts/simulate_textbook_fpr.py --sims 400`, seed 20261111; two textbooks, one topic,
+class sizes 18–30, ability SD 13, residual SD 7, class effects on level and on gain each N(0, class SD); MC s.e. in
+brackets):
+
+| classes / textbook | class SD | P(difference) when true effect = 0 | P(difference) when true effect = 6 p.p. |
+|---|---|---|---|
+| 3 | 1.5 | 0.018 (0.007) | 0.365 (0.024) |
+| 3 | 4 | 0.022 (0.007) | 0.120 (0.016) |
+| 3 | 8 | 0.022 (0.007) | 0.055 (0.011) |
+| 4 | 1.5 | 0.022 (0.007) | 0.647 (0.024) |
+| 4 | 4 | 0.007 (0.004) | 0.198 (0.020) |
+| 4 | 8 | 0.025 (0.008) | 0.117 (0.016) |
+| 6 | 1.5 | 0.035 (0.009) | 0.930 (0.013) |
+| 6 | 4 | 0.013 (0.006) | 0.415 (0.025) |
+| 6 | 8 | 0.040 (0.010) | 0.172 (0.019) |
+
+False-positive rates are at or below the nominal 5% (conservative, because both estimates must agree). The price is
+low power with few classes: a real 6 p.p. effect is usually reported as "insufficient evidence" unless there are many
+classes and small between-class differences. Before the fix the same no-effect scenarios gave 6–14%.
 
 ## Hours optimizer — `optimizer.optimize`
-Integer arithmetic in 0.5 h units (the total is preserved exactly).
-1. Validation → explicit `InfeasibleError` (min > max, locks outside bounds, total not reachable, total not a multiple of 0.5).
-2. need = priority × max(0, target − mastery)/100; ×1.25 for prerequisites of below-target topics.
-3. Below-target topics may only grow: d = h × (1 + max_change × need/max_need).
-   At/above-target topics may only shrink by their surplus: d = h × (1 − max_change × (mastery − target)/(100 − target)).
-   Topics without reliable data (or < min students) keep their hours. Prerequisites of weak topics are never reduced.
-4. Projection: bisection on a uniform shift λ so Σ clip(d + λ, lo, hi) = total, then largest-remainder rounding inside bounds.
-   If the ±max_change band makes the total unreachable, the band is relaxed to the hard min/max with a warning.
-5. Gain evidence: each below-target topic's explanation states its pre→post gain; when the gain is not significant
-   the explanation and warnings say that extra hours alone may not help and a methodological review is needed.
-6. Every allocation (proposed or manual) is re-checked: total, bounds, locks, 0.5 h steps, non-negativity.
-No predicted score improvement is ever produced.
+One plan per grade (all classes follow it). Baseline = median of the classes' imported hours rounded to 0.5 h (the
+spread across classes is shown); 0.5 h is the planning unit, so the integer-unit arithmetic keeps totals exact.
+* **Hard constraints** (never relaxed; violations → 422 `INFEASIBLE`): total, min/max, locks, 0.5 h steps, non-negative.
+* **Policies** (on by default; if they make the request infeasible → 422 `POLICY_INFEASIBLE` unless the request sets
+  `allow_policy_relaxation`, then the *minimal* set of policies is relaxed and reported with affected topics):
+  `max_change` (±max_change_pct per step), `hold_without_evidence` (no reliable data or significant decline → keep hours;
+  more hours are not assumed to fix a decline), `protect_prerequisites`, `protect_below_target`.
+* Objective: need = priority × max(0, target − mastery)/100 (×1.25 for prerequisites of weak topics); below-target
+  topics grow by need, above-target topics shrink by surplus; uniform shift by bisection; largest-remainder rounding with
+  a stable tie-break (larger need, then lower topic id) — independent of input order.
+* Explanations cite mastery, gain direction and the real reason for each change (redistribution vs. a reduced total vs.
+  a relaxed policy). No predicted improvement is ever produced.
 
-## AI explanations — `ai.generate_insights`
-* Input: a flat dictionary of verified aggregate facts (no student identifiers).
-* Output schema (`InsightPayload`) validated with Pydantic.
-* Grounding check: every cited metric key must exist; every number in the text must equal a fact value
-  (±0.05, small integers 0–10 and 95/100 allowed); causal/guarantee wording is rejected.
-* One retry with the validation error; then the deterministic explainer (which passes the same check).
+## AI explanations — `ai.py`
+Facts are keyed by stable entity ids (`topic.T7-05.mastery`, `comparison.0.gain_diff`, `plan.total_hours`, …). An LLM may
+only return findings bound to one entity, with prose that references values through placeholders (`{{mastery}}`,
+`{{name}}`, `{{overview.students}}`); raw digits and literal entity names are rejected, placeholders are rendered
+deterministically with units. Every rendered finding — LLM or deterministic — must contain only numbers of its own entity
+(no small-number exemptions). Heuristic guards additionally reject promises/causal claims, statements contradicting a
+topic's status or gain direction, and naming a "better" textbook when evidence is insufficient. One retry, then the
+deterministic explainer. The live provider path has only been tested with mocks.

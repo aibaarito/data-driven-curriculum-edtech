@@ -9,6 +9,15 @@ if not _TEST_URL.rsplit("/", 1)[-1].endswith("_test"):
     raise RuntimeError("Refusing to run tests: TEST_DATABASE_URL must point to a database whose name ends in _test")
 os.environ["DATABASE_URL"] = _TEST_URL  # tests wipe this database; never the dev one
 os.environ["LLM_API_KEY"] = ""  # tests never call a real LLM
+# Access control is exercised in tests: a per-run random API token and an enabled, token-protected reset.
+import secrets  # noqa: E402
+
+API_TOKEN = secrets.token_urlsafe(24)
+ADMIN_TOKEN = secrets.token_urlsafe(24)
+os.environ["API_TOKEN"] = API_TOKEN
+os.environ["ENABLE_DATA_RESET"] = "true"
+os.environ["ADMIN_TOKEN"] = ADMIN_TOKEN
+AUTH = {"Authorization": f"Bearer {API_TOKEN}"}
 
 ROOT = Path(__file__).resolve().parent.parent
 DEMO_CSV = ROOT / "app" / "assets" / "data" / "synthetic_assessments.csv"
@@ -49,5 +58,5 @@ def client(migrated_db):
         tables = conn.execute(text(
             "SELECT tablename FROM pg_tables WHERE schemaname='public' AND tablename <> 'alembic_version'")).scalars().all()
         conn.execute(text("TRUNCATE " + ", ".join(tables) + " RESTART IDENTITY CASCADE"))
-    with TestClient(app) as c:
+    with TestClient(app, headers=AUTH) as c:
         yield c

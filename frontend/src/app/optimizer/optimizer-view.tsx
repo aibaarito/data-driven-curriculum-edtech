@@ -35,6 +35,13 @@ interface Edit {
   locked: boolean;
 }
 
+interface CustomChecks {
+  ok: boolean;
+  constraints: ConstraintCheck[];
+  total: number;
+  policy_checks: { policy: string; name: string; ok: boolean; affected_topics: string[] }[];
+}
+
 const STATUS_RU = { proposed: "Предложена", accepted: "Принята", rejected: "Отклонена" } as const;
 
 export function OptimizerView() {
@@ -106,8 +113,9 @@ function OptimizerForm({ data, reloadInputs, subjectId, grade }: {
   const [run, setRun] = useState<OptimizerRun | null>(null);
   const [runError, setRunError] = useState<ApiError | null>(null);
   const [busy, setBusy] = useState(false);
+  const [allowRelax, setAllowRelax] = useState(false);
   const [custom, setCustom] = useState<Record<number, string>>({});
-  const [customChecks, setCustomChecks] = useState<{ ok: boolean; constraints: ConstraintCheck[]; total: number } | null>(null);
+  const [customChecks, setCustomChecks] = useState<CustomChecks | null>(null);
 
   const names = useMemo(() => Object.fromEntries(data.topics.map((x) => [x.topic_id, x.name])), [data]);
   const totalParsed = totalHoursSchema.safeParse(Number(total.replace(",", ".")));
@@ -133,7 +141,7 @@ function OptimizerForm({ data, reloadInputs, subjectId, grade }: {
     setCustomChecks(null);
     try {
       const body = {
-        subject_id: subjectId, grade, total_hours: Number(total.replace(",", ".")),
+        subject_id: subjectId, grade, total_hours: Number(total.replace(",", ".")), allow_policy_relaxation: allowRelax,
         target_mastery: Number(target), max_change_pct: Number(maxChange),
         topics: data.topics.map((tp) => {
           const e = edits[tp.topic_id];
@@ -220,7 +228,7 @@ function OptimizerForm({ data, reloadInputs, subjectId, grade }: {
         <CardHeader>
           <CardTitle>Исходные данные и ограничения</CardTitle>
           <CardDescription>
-            Текущие часы — среднее по классам параллели. Освоение рассчитано по данным. Можно изменить часы, границы,
+            Текущие часы — медиана по классам параллели (единый план параллели). Освоение рассчитано по данным. Можно изменить часы, границы,
             приоритет и зафиксировать темы. Сумма текущих часов: {num(currentSum, 2)} ч.
           </CardDescription>
           <CardAction>
@@ -256,9 +264,15 @@ function OptimizerForm({ data, reloadInputs, subjectId, grade }: {
                       </TableCell>
                       <TableCell><div className="flex items-center gap-2"><span className="tabular-nums">{pct(tp.mastery)}</span><StatusBadge status={tp.status} /></div></TableCell>
                       <TableCell className={cn("text-right tabular-nums", tp.gain_significant === false && "text-danger")}>
-                        {tp.gain !== null ? `${signed(tp.gain)}${tp.gain_significant ? "" : " (н.з.)"}` : "—"}
+                        {tp.gain === null ? "—" : tp.gain_direction === "insufficient" ? "мало пар" :
+                          `${signed(tp.gain)}${tp.gain_direction === "inconclusive" ? " (н.у.)" : tp.gain_direction === "decline" ? " ↓" : ""}`}
                       </TableCell>
-                      <TableCell><NumIn label={`Часы: ${tp.name}`} value={e.current_hours} onChange={(v) => setEdit(tp.topic_id, { current_hours: v })} /></TableCell>
+                      <TableCell>
+                        <NumIn label={`Часы: ${tp.name}`} value={e.current_hours} onChange={(v) => setEdit(tp.topic_id, { current_hours: v })} />
+                        {tp.class_hours_min !== null && tp.class_hours_min !== tp.class_hours_max && (
+                          <div className="mt-0.5 text-[11px] text-muted-foreground">классы: {num(tp.class_hours_min)}–{num(tp.class_hours_max)} ч</div>
+                        )}
+                      </TableCell>
                       <TableCell><NumIn label={`Минимум: ${tp.name}`} value={e.min_hours} onChange={(v) => setEdit(tp.topic_id, { min_hours: v })} /></TableCell>
                       <TableCell><NumIn label={`Максимум: ${tp.name}`} value={e.max_hours} onChange={(v) => setEdit(tp.topic_id, { max_hours: v })} /></TableCell>
                       <TableCell>
@@ -277,7 +291,18 @@ function OptimizerForm({ data, reloadInputs, subjectId, grade }: {
               </TableBody>
             </Table>
           </div>
-          <p className="text-xs text-muted-foreground">Приоритет: 1 — низкий, 3 — высокий. При фиксации часы округляются до 0,5 ч. «Сохранить ограничения» записывает мин./макс./приоритет в базу.</p>
+          <p className="text-xs text-muted-foreground">
+            План — единый для параллели: текущие часы темы — медиана по классам, округлённая до 0,5 ч (разброс по классам
+            показан под значением). Приоритет: 1 — низкий, 3 — высокий. «Сохранить ограничения» записывает мин./макс./приоритет в базу.
+          </p>
+          <div className="flex items-start gap-2">
+            <Checkbox id="relax" checked={allowRelax} onCheckedChange={(c) => setAllowRelax(c === true)} />
+            <Label htmlFor="relax" className="text-sm font-normal leading-snug">
+              Разрешить явное ослабление правил оптимизатора, если заданный объём часов иначе не распределить
+              (например, при сокращении часов). Жёсткие ограничения не ослабляются никогда; ослабленные правила и
+              затронутые темы будут перечислены.
+            </Label>
+          </div>
           <Button onClick={generate} disabled={!formValid || busy} data-testid="run-optimizer">
             {busy ? <Loader2 className="size-4 animate-spin" /> : <Play className="size-4" />} Сформировать рекомендацию
           </Button>
@@ -328,7 +353,7 @@ function RunResult({ run, chartData, custom, setCustom, customChecks, onEvaluate
   chartData: Record<string, string | number | null>[];
   custom: Record<number, string>;
   setCustom: (fn: (s: Record<number, string>) => Record<number, string>) => void;
-  customChecks: { ok: boolean; constraints: ConstraintCheck[]; total: number } | null;
+  customChecks: CustomChecks | null;
   onEvaluate: () => void;
   onDecide: (d: "accept" | "reject") => void;
 }) {
@@ -398,8 +423,26 @@ function RunResult({ run, chartData, custom, setCustom, customChecks, onEvaluate
         <Card>
           <CardHeader><CardTitle>Проверка ограничений</CardTitle></CardHeader>
           <CardContent>
-            <Checks title="Рекомендация" checks={run.constraints} />
-            {customChecks && <div className="mt-4"><Checks title="Ручной вариант" checks={customChecks.constraints} /></div>}
+            <Checks title="Жёсткие ограничения — рекомендация" checks={run.constraints} />
+            <div className="mt-4">
+              <div className="mb-2 text-sm font-medium">Правила оптимизатора</div>
+              <ul className="space-y-1.5 text-sm" data-testid="policy-checks">
+                {run.policy_checks.map((p) => (
+                  <li key={p.policy} className="flex items-start gap-2">
+                    {p.status === "applied" ? <Check className="mt-0.5 size-4 text-success" /> : <CircleAlert className="mt-0.5 size-4 text-amber-600" />}
+                    <span>{p.name} <span className="text-muted-foreground">— {p.status === "applied" ? "соблюдено" :
+                      `ослаблено по запросу${p.affected_topics.length ? `: ${p.affected_topics.join(", ")}` : ""}`}</span></span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+            {customChecks && (
+              <div className="mt-4 space-y-3">
+                <Checks title="Жёсткие ограничения — ручной вариант" checks={customChecks.constraints} />
+                <Checks title="Правила — ручной вариант (рекомендательные)" checks={customChecks.policy_checks.map((p) => ({
+                  name: p.name, ok: p.ok, detail: p.ok ? "соблюдено" : `нарушено: ${p.affected_topics.join(", ")}` }))} />
+              </div>
+            )}
           </CardContent>
         </Card>
         <Card>
