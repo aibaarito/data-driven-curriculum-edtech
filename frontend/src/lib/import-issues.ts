@@ -34,6 +34,16 @@ export const ISSUE_TITLE: Record<string, string> = {
   TEXTBOOK_NAME_DIFFERS: "Название учебника отличается от сохранённого",
   TEACHING_HOURS_REPLACED: "Часы темы будут заменены",
   ALREADY_IMPORTED: "Строки уже загружены",
+  FORMULA_WITHOUT_VALUE: "Формула без сохранённого значения",
+  REPEATED_HEADER: "Повтор заголовка внутри данных",
+  ROWS_WITHOUT_MAPPED_DATA: "Строки без данных в выбранных столбцах",
+  WIDE_LAYOUT_SUSPECTED: "Неподдерживаемая структура таблицы",
+  MISSING_MAPPING: "Не выбран источник поля",
+  COLUMN_REUSED: "Столбец выбран дважды",
+  INVALID_SHARED_VALUE: "Неверное значение для всего файла",
+  SHARED_NOT_CONFIRMED: "Значения для всего файла не подтверждены",
+  STALE_PREVIEW: "Предпросмотр устарел",
+  PREVIEW_EXPIRED: "Срок предпросмотра истёк",
 };
 
 /** Plain-language names for the exact spreadsheet headers (the header itself is always shown too). */

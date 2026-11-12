@@ -80,6 +80,8 @@ class ValidationResult:
     rows: list[dict[str, Any]] = field(default_factory=list)  # normalized rows (only meaningful if ok)
     summary: dict[str, Any] = field(default_factory=dict)
     columns_found: list[str] = field(default_factory=list)
+    # False when validation stopped before individual records were checked (e.g. a missing or duplicated column).
+    records_validated: bool = False
 
     @property
     def ok(self) -> bool:
@@ -92,6 +94,9 @@ class ValidationResult:
             "valid_rows": len(self.rows) if self.ok else 0,
             "error_count": len(self.errors),
             "warning_count": len(self.warnings),
+            "records_validated": self.records_validated,
+            # Distinct source rows with at least one error (all errors, not only the listed ones).
+            "rows_with_errors": len({e.row for e in self.errors if e.row is not None}),
             "error_counts": dict(Counter(e.code for e in self.errors)),
             "warning_counts": dict(Counter(w.code for w in self.warnings)),
             "errors": [e.as_dict() for e in self.errors[:MAX_LISTED_ISSUES]],
@@ -234,7 +239,13 @@ def _date(value: str) -> date | None:
 # --------------------------------------------------------------------------- validation
 
 
-def validate_dataframe(df: pd.DataFrame, existing_loader: "Callable[[list[dict[str, Any]]], ExistingState] | None" = None) -> ValidationResult:
+def validate_dataframe(df: pd.DataFrame, existing_loader: "Callable[[list[dict[str, Any]]], ExistingState] | None" = None,
+                       row_numbers: list[int] | None = None) -> ValidationResult:
+    """Validate a table with canonical column names.
+
+    ``row_numbers`` gives the original worksheet row of every DataFrame row (guided import with title rows and a
+    selected header row); by default the header is row 1 and data starts at row 2.
+    """
     res = ValidationResult()
     res.columns_found = list(df.columns)
     dup_cols = [c for c, n in Counter(df.columns).items() if n > 1]
@@ -257,7 +268,7 @@ def validate_dataframe(df: pd.DataFrame, existing_loader: "Callable[[list[dict[s
     blank_rows = 0
     normalized: list[dict[str, Any]] = []
     for idx, raw in enumerate(records):
-        rownum = idx + 2  # header is row 1
+        rownum = row_numbers[idx] if row_numbers is not None else idx + 2  # default: header is row 1
         native = {c: raw.get(c) for c in ALL_COLUMNS}
         rec = {c: _cell_text(native[c]) for c in ALL_COLUMNS}
         if not any(rec[c] for c in ALL_COLUMNS):
@@ -369,6 +380,7 @@ def validate_dataframe(df: pd.DataFrame, existing_loader: "Callable[[list[dict[s
             normalized.append(out)
 
     res.total_rows = len(records) - blank_rows
+    res.records_validated = True
     if blank_rows:
         res.warnings.append(Issue(None, None, "BLANK_ROWS", f"Пропущено полностью пустых строк: {blank_rows}."))
     if res.total_rows == 0:

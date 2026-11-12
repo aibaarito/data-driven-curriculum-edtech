@@ -10,6 +10,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    LargeBinary,
     String,
     Text,
     UniqueConstraint,
@@ -153,6 +154,13 @@ class ImportBatch(Base):
     staged_rows: Mapped[list | None] = mapped_column(JSONB(none_as_null=True), nullable=True)
     # Previews expire; expired/failed previews have their staged rows purged (see services/previews.py).
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    # Guided import (worksheet/header/mapping). The uploaded file is kept only while the preview is open and is
+    # dropped on commit, discard and expiry. Validation is bound to config_hash = sha256(file + configuration).
+    source_file: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True, deferred=True)
+    source_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    session_key_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    prep_config: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True), nullable=True)
+    config_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
 
 class AssessmentResult(Base):

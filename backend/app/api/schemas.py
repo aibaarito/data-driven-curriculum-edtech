@@ -104,3 +104,9 @@ class ReportBody(BaseModel):
 
 class ResetBody(BaseModel):
     confirm: str
+
+
+class CommitBody(BaseModel):
+    """Guided imports must present the session key and the configuration hash returned by the last validation."""
+    session_key: str | None = Field(None, max_length=128)
+    config_hash: str | None = Field(None, max_length=64)

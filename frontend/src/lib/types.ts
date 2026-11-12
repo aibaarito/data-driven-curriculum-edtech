@@ -226,6 +226,10 @@ export interface ImportPreview {
   valid_rows: number;
   error_count: number;
   warning_count: number;
+  /** False when validation stopped at the table structure before individual records were checked. */
+  records_validated?: boolean;
+  /** Distinct source rows with at least one error. */
+  rows_with_errors?: number;
   error_counts: Record<string, number>;
   warning_counts: Record<string, number>;
   errors: ValidationIssue[];
@@ -248,7 +252,7 @@ export interface ImportPreview {
 export interface ImportBatch {
   id: number;
   filename: string;
-  status: "preview" | "committed" | "discarded";
+  status: "preview" | "committed" | "discarded" | "expired";
   created_at: string;
   total_rows: number;
   inserted_rows: number;
@@ -402,4 +406,102 @@ export interface SettingsResponse {
   llm: { enabled: boolean; provider: string | null; model: string | null };
   limits: { max_upload_mb: number; max_upload_rows: number; preview_ttl_minutes: number };
   access: { mode: "token" | "local_only"; reset_enabled: boolean };
+}
+
+// ----------------------------------------------------------------------------- guided import
+
+export interface ImportFieldInfo {
+  field: string;
+  label: string;
+  description: string;
+  required: boolean;
+  shared_allowed: boolean;
+  none_allowed: boolean;
+}
+
+export interface SheetSummary {
+  name: string;
+  hidden: boolean;
+  empty: boolean;
+  non_empty_rows: number;
+  columns: number;
+  problem: string | null;
+  known_headers: number;
+}
+
+export interface SourceColumn {
+  id: string;
+  letter: string;
+  header: string;
+  label: string;
+  samples: string[];
+  empty: boolean;
+}
+
+export interface LayoutNotice {
+  code: string;
+  severity: "error" | "warning";
+  message: string;
+  rows?: number[];
+}
+
+export interface SheetInspection {
+  sheet: string;
+  hidden: boolean;
+  problem: string | null;
+  width: number;
+  header_suggestion: { row: number | null; confidence: "high" | "low" | "none"; reason: string };
+  preview: { row: number; cells: string[] }[];
+  header_rows_allowed: number[];
+  header_row: number | null;
+  columns: SourceColumn[];
+  suggestions: {
+    suggested: Record<string, { column: string; confidence: "exact" | "alias" }>;
+    ambiguous: Record<string, { column: string; reason: string }[]>;
+  };
+  notices: LayoutNotice[];
+  duplicate_headers: { header: string; letters: string[] }[];
+  data_rows?: number;
+}
+
+export interface ImportSource {
+  batch_id: number;
+  session_key: string;
+  filename: string;
+  kind: "csv" | "xlsx";
+  expires_at: string;
+  sheets: SheetSummary[];
+  sheet_suggestion: { name: string | null; reason: string };
+  inspection: SheetInspection | null;
+  auto_ready: boolean;
+  fields: ImportFieldInfo[];
+  limits: { max_upload_mb: number; max_rows: number; max_columns: number; max_sheets: number; header_scan_rows: number; preview_ttl_minutes: number };
+}
+
+export type FieldChoice =
+  | { source: "column"; column: string }
+  | { source: "value"; value: string }
+  | { source: "none" };
+
+export interface ConfigIssue {
+  code: string;
+  message: string;
+  field: string | null;
+  column: string | null;
+}
+
+export interface ImportConfigSummary {
+  sheet: string;
+  sheet_hidden: boolean;
+  header_row: number;
+  mapped: { field: string; label: string; column: string; letter: string; header: string }[];
+  shared: { field: string; label: string; value: string }[];
+  not_in_file: { field: string; label: string }[];
+  ignored_columns: string[];
+}
+
+export interface GuidedValidation extends ImportPreview {
+  config_hash: string;
+  config: ImportConfigSummary;
+  expires_at: string;
 }

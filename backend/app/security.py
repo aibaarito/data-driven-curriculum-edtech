@@ -62,9 +62,10 @@ class _BodyTooLarge(Exception):
 class BodySizeLimitMiddleware:
     """Rejects request bodies above the limit while they are being received (Content-Length is not trusted)."""
 
-    def __init__(self, app: Any, path_prefix: str = "/api/imports/preview", overhead_bytes: int = 256 * 1024):
+    def __init__(self, app: Any, path_prefix: tuple[str, ...] | str = ("/api/imports/",),
+                 overhead_bytes: int = 256 * 1024):
         self.app = app
-        self.path_prefix = path_prefix
+        self.path_prefix = path_prefix if isinstance(path_prefix, tuple) else (path_prefix,)
         self.overhead = overhead_bytes  # multipart boundaries and headers
 
     async def __call__(self, scope: dict, receive: Any, send: Any) -> None:
