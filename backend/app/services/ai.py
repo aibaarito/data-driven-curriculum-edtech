@@ -446,7 +446,17 @@ SYSTEM_PROMPT = """Ты — аналитик-методист. Поясняй р
 8. Не более 5 findings: главное о трудных темах, темах со снижением, сравнении учебников и плане часов.
 9. Используй только плейсхолдеры из PLACEHOLDERS: для finding — короткие имена из списка её entity
    (например {{mastery}}), плюс SHARED. {{name}} пиши только в findings, entity которых не "overview".
-   Не утверждай ничего, чего нет в FACTS (например, о малой выборке, если это не следует из FACTS)."""
+   Не утверждай ничего, чего нет в FACTS (например, о малой выборке, если это не следует из FACTS).
+10. summary — общий вывод без {{name}} и без названий тем: только слова и {{overview.*}}/{{settings.*}}.
+
+ПРИМЕР (вымышленная сущность topic.EX; в ответе используй только сущности из FACTS):
+FACTS = {"overview.students": 50, "topic.EX.name": "…", "topic.EX.mastery": 41.0, "topic.EX.status": "difficult",
+"topic.EX.gain": 0.5, "topic.EX.gain_direction": "inconclusive"}
+Ответ: {"summary": "Проанализировано {{overview.students}} учеников; есть трудная тема, по которой изменение не
+установлено.", "findings": [{"entity": "topic.EX", "kind": "observation", "text": "Тема {{name}} трудная: освоение
+{{mastery}}. Изменение {{gain}} не установлено: интервал включает ноль, это не доказывает отсутствие эффекта."}],
+"limitations": ["Данные наблюдательные, поэтому причинные выводы невозможны."],
+"next_steps": ["Разобрать с учителями задания по трудной теме."]}"""
 
 class ProviderError(RuntimeError):
     """Provider failure with a coarse, non-sensitive kind: unavailable | model_missing | timeout | busy | provider_error."""
