@@ -118,6 +118,7 @@ flowchart LR
     N -->|"REST, server-side API token"| F["FastAPI backend<br/>analytics · optimizer · decisions"]
     F --> P[(PostgreSQL)]
     F --> R["ReportLab<br/>PDF reports"]
+    F -.->|"optional: aggregate facts only"| L["Qwen3-8B via Ollama<br/>(local, 127.0.0.1)"]
     F -.->|"optional: aggregate facts only"| G["Gemini<br/>(OpenAI-compatible API)"]
     F --> D["Deterministic<br/>explainer"]
 ```
@@ -129,7 +130,7 @@ flowchart LR
 | **pandas · NumPy · SciPy** | Statistical calculations as pure functions, unit-tested without a database |
 | **PostgreSQL + Alembic** | Normalised schema (anonymous student IDs only); migrations are the only way tables are created |
 | **ReportLab** | PDF reports with Cyrillic fonts |
-| **Gemini via an OpenAI-compatible API (optional)** | Natural-language explanations of facts the backend has already computed. Without a key, or when output is rejected or the provider fails, the deterministic explainer is used and the UI shows which mode produced the text |
+| **Qwen3-8B through Ollama, or Gemini (optional)** | Natural-language explanations of facts the backend has already computed. Qwen3-8B runs locally through Ollama with no key; Gemini is reached through an OpenAI-compatible API. If output is rejected or the provider fails, the deterministic explainer is used and the UI shows which mode produced the text |
 
 Module-level detail and the API reference are in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and
 [docs/DECISION_INTELLIGENCE_ARCHITECTURE.md](docs/DECISION_INTELLIGENCE_ARCHITECTURE.md).
@@ -184,7 +185,7 @@ Configuration lives in `backend/.env` locally (root `.env` for Compose) and is n
 | `API_TOKEN` | optional locally, required for Compose and any shared host | Without it, the API answers loopback clients only. With it, set the same value on the backend and frontend processes |
 | `ENABLE_DATA_RESET`, `ADMIN_TOKEN` | optional | *Delete all data* is enabled only when both are set (token ≥ 16 characters) |
 | `DEMO_BASIC_AUTH_USER`, `DEMO_BASIC_AUTH_PASSWORD` | optional | HTTP Basic protection for the whole UI |
-| `LLM_PROVIDER`, `LLM_API_KEY`, `LLM_MODEL`, `LLM_BASE_URL`, `LLM_TIMEOUT_SECONDS` | optional | Model-written explanations. With an empty key, the deterministic explainer is used |
+| `LLM_PROVIDER`, `LLM_MODEL`, `LLM_BASE_URL`, `LLM_TIMEOUT_SECONDS`, `LLM_API_KEY` | optional | Model-written explanations. `ollama` needs no key; remote providers without a key use the deterministic explainer |
 
 To use Gemini, set these in the private file only:
 
@@ -264,6 +265,7 @@ session, real school data, and performance beyond the synthetic dataset.
 | [docs/VERIFICATION.md](docs/VERIFICATION.md) · [docs/FEATURE_COVERAGE.md](docs/FEATURE_COVERAGE.md) | Verification records and feature-to-test matrix |
 | [docs/PRE_DEFENSE_SMOKE.md](docs/PRE_DEFENSE_SMOKE.md) | Pre-defense checklist and optional live Gemini check |
 | [docs/RAILWAY_DEPLOYMENT.md](docs/RAILWAY_DEPLOYMENT.md) | Protected Railway deployment procedure (Russian) |
+| [docs/LOCAL_AI.md](docs/LOCAL_AI.md) | Local Qwen3-8B through Ollama: install, local-only settings, configuration, failures |
 | [docs/README_RESEARCH.md](docs/README_RESEARCH.md) | How award-winning hackathon READMEs informed this one |
 
 ## Credits and license

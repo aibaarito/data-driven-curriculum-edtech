@@ -46,17 +46,40 @@ function useElapsed(startedAt: number | null): number {
 }
 
 export function modeView(data: InsightsResponse): { title: string; text: string; tone: "ok" | "template" | "warn" } {
+  const local = data.provider === "ollama";
   if (data.mode === "llm") {
-    return { title: `Пояснения написала языковая модель (${data.model ?? "модель"})`, tone: "ok",
-      text: `Ответ прошёл проверку структуры и сверку чисел с расчётами (попыток: ${data.attempts}).` };
+    return {
+      title: local
+        ? `Пояснения написала локальная модель ${data.model ?? ""} (Ollama, на этом компьютере)`
+        : `Пояснения написала языковая модель (${data.model ?? "модель"})`,
+      tone: "ok",
+      text: `Ответ прошёл проверку структуры и сверку чисел с расчётами (попыток: ${data.attempts}).`,
+    };
   }
+  const reason = (fallback: string) => data.fallback_reason ?? fallback;
+  const service = local ? "Локальная модель" : "Модель";
   switch (data.fallback_kind) {
     case "rejected":
       return { title: "Ответ модели отклонён — показаны пояснения по шаблонам", tone: "warn",
-        text: data.fallback_reason ?? "Ответ модели не прошёл проверку. Пояснения сформированы по шаблонам; расчёты сохранены." };
+        text: reason("Ответ модели не прошёл проверку. Пояснения сформированы по шаблонам; расчёты сохранены.") };
+    case "unavailable":
+      return { title: `${service} недоступна — показаны пояснения по шаблонам`, tone: "warn",
+        text: reason("Сервис модели не отвечает. Пояснения сформированы по шаблонам; расчёты сохранены.") };
+    case "model_missing":
+      return { title: "Модель не установлена — показаны пояснения по шаблонам", tone: "warn",
+        text: reason("Модель не найдена в локальном сервисе. Пояснения сформированы по шаблонам; расчёты сохранены.") };
+    case "timeout":
+      return { title: "Модель не ответила вовремя — показаны пояснения по шаблонам", tone: "warn",
+        text: reason("Время ожидания ответа истекло. Пояснения сформированы по шаблонам; расчёты сохранены.") };
+    case "busy":
+      return { title: "Модель занята — показаны пояснения по шаблонам", tone: "warn",
+        text: reason("Модель обрабатывает другой запрос. Пояснения сформированы по шаблонам; расчёты сохранены.") };
+    case "too_large":
+      return { title: "Слишком много фактов для модели — показаны пояснения по шаблонам", tone: "warn",
+        text: reason("Набор фактов превышает лимит модели. Пояснения сформированы по шаблонам; расчёты сохранены.") };
     case "provider_error":
       return { title: "Модель недоступна — показаны пояснения по шаблонам", tone: "warn",
-        text: data.fallback_reason ?? "Сервис модели не ответил. Пояснения сформированы по шаблонам; расчёты сохранены." };
+        text: reason("Сервис модели не ответил. Пояснения сформированы по шаблонам; расчёты сохранены.") };
     default:
       return { title: "Пояснения по шаблонам (без языковой модели)", tone: "template",
         text: "Пояснения сформированы по шаблонам без языковой модели. Числа взяты из расчётов для указанной группы." };
@@ -108,8 +131,8 @@ function Content() {
               <div className="rounded-md bg-muted/60 p-2.5">
                 <p>Готовим пояснения для выбранной группы: {req.pending.scopeLabel}…</p>
                 <p className="text-xs text-muted-foreground">
-                  Прошло {elapsed} с. Ответ языковой модели может занять десятки секунд; если она недоступна или не
-                  ответит вовремя, сервер вернёт пояснения по шаблонам.{result ? " Предыдущий результат ниже остаётся видимым до получения нового." : ""}
+                  Прошло {elapsed} с. Ответ языковой модели может занять десятки секунд (локальной модели при первом запуске — дольше); если она
+                  недоступна или не ответит вовремя, сервер вернёт пояснения по шаблонам.{result ? " Предыдущий результат ниже остаётся видимым до получения нового." : ""}
                 </p>
               </div>
             )}
@@ -178,7 +201,7 @@ function ResultView({ data, label, query, stale, refreshing, onRefresh }: {
             {(data.fallback_detail || data.attempts > 0) && (
               <details className="mt-1 text-xs">
                 <summary className="cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-ring">Технические сведения</summary>
-                <p>Режим: {data.mode}; обращений к модели: {data.attempts}
+                <p>Режим: {data.mode}{data.provider ? `; провайдер: ${data.provider}` : ""}; обращений к модели: {data.attempts}
                   {data.fallback_kind ? `; причина: ${data.fallback_kind}` : ""}{data.fallback_detail ? ` (${data.fallback_detail})` : ""}.</p>
               </details>
             )}

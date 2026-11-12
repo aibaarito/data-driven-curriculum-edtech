@@ -351,12 +351,15 @@ export interface Finding {
 export interface InsightsResponse {
   mode: "llm" | "deterministic";
   model: string | null;
+  /** Configured provider ("ollama" = local model); absent from older stored reports. */
+  provider?: string | null;
   payload: { summary: string; findings: Finding[]; limitations: string[]; next_steps: string[] };
   facts: Record<string, number | string>;
   attempts: number;
   fallback_reason: string | null;
-  /** not_configured | rejected | provider_error; null for model output (absent from older stored reports). */
-  fallback_kind?: "not_configured" | "rejected" | "provider_error" | null;
+  /** Why templates were used; null for model output (absent from older stored reports). */
+  fallback_kind?: "not_configured" | "rejected" | "provider_error" | "unavailable" | "model_missing" | "timeout"
+    | "busy" | "too_large" | null;
   /** Technical detail (exception class) for support; never shown as the primary message. */
   fallback_detail?: string | null;
   optimizer_status: "proposed" | "accepted" | "rejected" | null;

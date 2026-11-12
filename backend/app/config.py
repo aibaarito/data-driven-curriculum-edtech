@@ -23,12 +23,20 @@ class Settings(BaseSettings):
     enable_data_reset: bool = False
     admin_token: str = ""
 
-    # LLM (optional). Without a key the app uses deterministic explanations.
-    llm_provider: str = "anthropic"  # "anthropic" | "openai_compatible" | "none"
+    # LLM (optional). Without a configured provider the app uses deterministic explanations.
+    # "ollama" is a local model served by Ollama's native API (no key); the others are remote APIs needing a key.
+    llm_provider: str = "anthropic"  # "anthropic" | "openai_compatible" | "ollama" | "none"
     llm_api_key: str = ""
     llm_model: str = "claude-sonnet-5-5"
-    llm_base_url: str = ""  # only for openai_compatible
-    llm_timeout_seconds: float = 30.0
+    llm_base_url: str = ""  # openai_compatible: required; ollama: defaults to http://127.0.0.1:11434
+    llm_timeout_seconds: float = 30.0  # per model call
+    # Whole explanation request (both attempts together); 0 = 2 x llm_timeout_seconds.
+    llm_total_timeout_seconds: float = 0.0
+    llm_max_concurrency: int = 1  # model calls in flight per backend process; others fall back instead of queuing
+    llm_max_output_tokens: int = 2048  # ollama num_predict
+    llm_context_tokens: int = 8192  # ollama num_ctx
+    llm_max_input_chars: int = 24000  # facts + prompt; larger requests use the deterministic explainer (no truncation)
+    llm_keep_alive: str = "10m"  # ollama: how long the model stays loaded after a request
 
     @field_validator("database_url", mode="before")
     @classmethod
@@ -42,7 +50,13 @@ class Settings(BaseSettings):
 
     @property
     def llm_enabled(self) -> bool:
+        if self.llm_provider == "ollama":
+            return bool(self.llm_model.strip())  # local server: no API key involved
         return self.llm_provider != "none" and bool(self.llm_api_key.strip())
+
+    @property
+    def llm_total_timeout(self) -> float:
+        return self.llm_total_timeout_seconds or 2 * self.llm_timeout_seconds
 
     @property
     def max_upload_bytes(self) -> int:
