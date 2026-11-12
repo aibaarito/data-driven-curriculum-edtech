@@ -4,7 +4,12 @@ Nothing is sent anywhere unless --live is given. Contexts are generated here fro
 database is read and no application data is changed. The summary separates accepted model answers from
 deterministic fallbacks and records model, quantization, runtime version, settings, latency and memory.
 
-    python scripts/eval_local_llm.py --live --out ../verification/local-llm-eval.json
+    python scripts/eval_local_llm.py --live --jsonl /tmp/eval.jsonl              # all contexts
+    python scripts/eval_local_llm.py --live --jsonl /tmp/eval.jsonl --start 8 --limit 6   # resume a chunk
+    python scripts/eval_local_llm.py --summarize /tmp/eval.jsonl --out /tmp/eval-summary.json
+
+Each context's result is appended to the JSONL file as soon as it finishes, so a long run can be split into
+chunks and an interrupted run loses at most one context.
 """
 from __future__ import annotations
 
@@ -130,6 +135,7 @@ CATEGORIES = [
     ("not a verified metric", "number_mismatch"), ("causal claim", "causal_claim"),
     ("contradicts the computed status", "status_contradiction"), ("describes progress", "wrong_direction"),
     ("names a better textbook", "unsupported_winner"), ("cut off", "truncated"), ("Reasoning tags", "reasoning_tags"),
+    ("has no name", "name_placeholder_without_name"), ("unknown metric keys", "unknown_metric_key"),
     ("Missing provider text", "empty"), ("No JSON", "invalid_json"), ("Expecting", "invalid_json"),
     ("validation error", "schema"),
 ]
@@ -203,13 +209,14 @@ def unload(settings: Settings) -> None:
     httpx.post(f"{base}/api/generate", json={"model": settings.llm_model, "keep_alive": 0}, timeout=60)
 
 
-def evaluate(settings: Settings, limit: int | None = None) -> dict[str, Any]:
+def evaluate(settings: Settings, jsonl: Path, start: int = 0, limit: int | None = None) -> None:
     info = runtime_info(settings)
-    unload(settings)  # the first context measures a cold start
+    if start == 0:
+        unload(settings)  # the first context of a full run measures a cold start
     sampler = MemorySampler()
     sampler.start()
-    results = []
-    for name, context in CONTEXTS[:limit]:
+    chosen = CONTEXTS[start: start + limit if limit else None]
+    for name, context in chosen:
         facts = ai.build_facts(context)
         calls: list[dict[str, Any]] = []
 
@@ -223,7 +230,8 @@ def evaluate(settings: Settings, limit: int | None = None) -> dict[str, Any]:
                 calls.append(entry)
                 raise
             except ValueError as exc:
-                entry.update(seconds=round(time.monotonic() - t0, 1), outcome=f"rejected:{classify(exc)}")
+                entry.update(seconds=round(time.monotonic() - t0, 1), outcome=f"rejected:{classify(exc)}",
+                             message=str(exc)[:200])
                 calls.append(entry)
                 raise
             entry["seconds"] = round(time.monotonic() - t0, 1)
@@ -231,44 +239,57 @@ def evaluate(settings: Settings, limit: int | None = None) -> dict[str, Any]:
                 check(text, facts)
                 entry["outcome"] = "accepted"
             except Exception as exc:  # noqa: BLE001 - classification only; generate_insights re-validates
-                entry["outcome"] = f"rejected:{classify(exc)}"
+                entry.update(outcome=f"rejected:{classify(exc)}", message=str(exc)[:200])
             calls.append(entry)
             return text
 
         t0 = time.monotonic()
         out = ai.generate_insights(context, settings, llm=spy)
-        results.append({"context": name, "mode": out["mode"], "attempts": out["attempts"],
-                        "fallback_kind": out["fallback_kind"], "seconds_total": round(time.monotonic() - t0, 1),
-                        "calls": calls,
-                        "payload": out["payload"] if out["mode"] == "llm" else None})
+        row = {"context": name, "mode": out["mode"], "attempts": out["attempts"],
+               "fallback_kind": out["fallback_kind"], "seconds_total": round(time.monotonic() - t0, 1),
+               "calls": calls, "payload": out["payload"] if out["mode"] == "llm" else None,
+               "peak_ollama_rss_mb": round(sampler.peak_rss_mb), "peak_swap_mb": round(sampler.peak_swap_mb),
+               "runtime": info, "per_call_timeout_s": settings.llm_timeout_seconds,
+               "date": time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime())}
+        with jsonl.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(row, ensure_ascii=False) + "\n")
         print(f"{name:38s} {out['mode']:13s} attempts={out['attempts']} "
-              f"{[c['outcome'] for c in calls]} {results[-1]['seconds_total']}s", flush=True)
+              f"{[c['outcome'] for c in calls]} {row['seconds_total']}s", flush=True)
     sampler.stop.set()
     sampler.join(timeout=2)
 
+
+def summarize(jsonl: Path, settings: Settings) -> dict[str, Any]:
+    rows = [json.loads(line) for line in jsonl.read_text(encoding="utf-8").splitlines() if line.strip()]
+    latest = {r["context"]: r for r in rows}  # a re-run context replaces its earlier row
+    results = [latest[n] for n, _ in CONTEXTS if n in latest]
     accepted = [r for r in results if r["mode"] == "llm"]
     call_times = [c["seconds"] for r in results for c in r["calls"]]
     rejections = Counter(c["outcome"].split(":", 1)[1] for r in results for c in r["calls"]
                          if c["outcome"].startswith("rejected"))
+    warm = call_times[1:]
     return {
         "kind": "LIVE local model evaluation (not a mocked test)",
-        "date": time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime()),
-        "runtime": info,
+        "runtime": results[0]["runtime"] if results else None,
         "settings": {"think": False, "format": "JSON Schema of app.services.ai.LLMPayload", **ai.OLLAMA_SAMPLING,
                      "num_ctx": settings.llm_context_tokens, "num_predict": settings.llm_max_output_tokens,
-                     "per_call_timeout_s": settings.llm_timeout_seconds,
-                     "total_timeout_s": settings.llm_total_timeout, "max_attempts": 2},
-        "contexts": len(results),
+                     "per_call_timeout_s": results[0]["per_call_timeout_s"] if results else None,
+                     "max_attempts": 2},
+        "contexts": len(results), "contexts_defined": len(CONTEXTS),
         "accepted_first_attempt": sum(1 for r in accepted if r["attempts"] == 1),
         "accepted_after_retry": sum(1 for r in accepted if r["attempts"] == 2),
         "deterministic_fallback": len(results) - len(accepted),
         "fallback_kinds": dict(Counter(r["fallback_kind"] for r in results if r["mode"] != "llm")),
-        "rejection_categories_per_call": dict(rejections),
         "model_calls": len(call_times),
+        "first_attempt_acceptance_per_call": dict(Counter(r["calls"][0]["outcome"].split(":")[0]
+                                                          for r in results if r["calls"])),
+        "rejection_categories_per_call": dict(rejections),
         "cold_first_call_s": call_times[0] if call_times else None,
-        "warm_call_s": {"min": min(call_times[1:], default=None), "max": max(call_times[1:], default=None),
-                        "median": sorted(call_times[1:])[len(call_times[1:]) // 2] if call_times[1:] else None},
-        "peak_ollama_rss_mb": round(sampler.peak_rss_mb), "peak_swap_mb": round(sampler.peak_swap_mb),
+        "warm_call_s": {"min": min(warm, default=None), "max": max(warm, default=None),
+                        "median": sorted(warm)[len(warm) // 2] if warm else None},
+        "peak_ollama_rss_mb": max((r["peak_ollama_rss_mb"] for r in results), default=None),
+        "peak_swap_mb": max((r["peak_swap_mb"] for r in results), default=None),
+        "dates": sorted({r["date"] for r in results}),
         "results": results,
     }
 
@@ -279,9 +300,20 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--base-url", default=os.environ.get("LLM_BASE_URL") or ai.OLLAMA_DEFAULT_BASE)
     ap.add_argument("--model", default="qwen3:8b")
     ap.add_argument("--timeout", type=float, default=180.0, help="per model call, seconds")
-    ap.add_argument("--limit", type=int, default=None, help="evaluate only the first N contexts")
+    ap.add_argument("--start", type=int, default=0, help="index of the first context to evaluate")
+    ap.add_argument("--limit", type=int, default=None, help="evaluate at most N contexts")
+    ap.add_argument("--jsonl", type=Path, default=Path("local-llm-eval.jsonl"), help="per-context results (appended)")
+    ap.add_argument("--summarize", type=Path, default=None, help="summarize an existing JSONL file; no model calls")
     ap.add_argument("--out", type=Path, default=None, help="write the sanitized JSON summary here")
     args = ap.parse_args(argv)
+    settings = Settings(_env_file=None, llm_provider="ollama", llm_model=args.model, llm_base_url=args.base_url,
+                        llm_timeout_seconds=args.timeout, llm_total_timeout_seconds=2 * args.timeout)
+    if args.summarize:
+        summary = summarize(args.summarize, settings)
+        if args.out:
+            args.out.write_text(json.dumps(summary, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
+        print(json.dumps({k: v for k, v in summary.items() if k != "results"}, ensure_ascii=False, indent=1))
+        return 0
     if not args.live:
         print(json.dumps({"status": "not_run", "reason": "pass --live to call the local model",
                           "contexts_available": len(CONTEXTS)}, ensure_ascii=False))
@@ -289,13 +321,7 @@ def main(argv: list[str] | None = None) -> int:
     if not re.match(r"^http://(127\.0\.0\.1|localhost|\[::1\])(:\d+)?(/v1)?/?$", args.base_url):
         print("Refusing: the evaluation only talks to a loopback Ollama endpoint.", file=sys.stderr)
         return 2
-    settings = Settings(_env_file=None, llm_provider="ollama", llm_model=args.model, llm_base_url=args.base_url,
-                        llm_timeout_seconds=args.timeout, llm_total_timeout_seconds=2 * args.timeout)
-    summary = evaluate(settings, args.limit)
-    text = json.dumps(summary, ensure_ascii=False, indent=1)
-    if args.out:
-        args.out.write_text(text + "\n", encoding="utf-8")
-    print(json.dumps({k: v for k, v in summary.items() if k != "results"}, ensure_ascii=False, indent=1))
+    evaluate(settings, args.jsonl, args.start, args.limit)
     return 0
 
 

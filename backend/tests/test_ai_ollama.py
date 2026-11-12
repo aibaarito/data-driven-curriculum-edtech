@@ -278,3 +278,33 @@ def test_internal_code_check_does_not_touch_placeholders_or_russian_words(fake_p
           "text": "Тема {{name}} трудная: освоение {{mastery}}, изменение {{gain}} не установлено."}]}
     queue.append(ollama_reply(json.dumps(ok, ensure_ascii=False)))
     assert generate_insights(CTX, OLLAMA)["mode"] == "llm"
+
+
+def test_placeholder_qualified_with_own_entity_is_the_same_value(fake_post):
+    """Seen live: Qwen3-8B writes {{topic.T1.mastery}}. Inside a topic.T1 finding this is the same fact."""
+    calls, queue = fake_post
+    ok = {**GOOD_LLM, "findings": [{"entity": "topic.T1", "kind": "observation",
+          "text": "Тема {{topic.T1.name}}: освоение {{topic.T1.mastery}}."}]}
+    queue.append(ollama_reply(json.dumps(ok, ensure_ascii=False)))
+    out = generate_insights(CTX, OLLAMA)
+    assert out["mode"] == "llm" and "«Дроби»: освоение 42.5%" in out["payload"]["findings"][0]["text"]
+
+
+@pytest.mark.parametrize("where, item", [
+    ("findings", {"entity": "topic.T1", "kind": "observation", "text": "Освоение {{topic.T2.mastery}}."}),
+    ("summary", "Тема {{topic.T1.name}} трудная."),
+    ("summary", "Тема {{name}} трудная."),
+])
+def test_other_entity_qualified_placeholders_and_names_outside_findings_stay_rejected(fake_post, where, item):
+    calls, queue = fake_post
+    bad = {**GOOD_LLM, **({"findings": [item]} if where == "findings" else {"summary": item})}
+    queue += [ollama_reply(json.dumps(bad, ensure_ascii=False))] * 2
+    assert generate_insights(CTX, OLLAMA)["fallback_kind"] == "rejected"
+
+
+def test_placeholder_map_lists_own_metrics_without_internal_codes():
+    m = ai.placeholder_map(ai.build_facts(CTX))
+    assert "mastery" in m["topic.T1"] and "gain" in m["topic.T1"]
+    assert "status" not in m["topic.T1"] and "gain_direction" not in m["topic.T1"]
+    assert "verdict" not in m["comparison.0"]
+    assert "overview.students" in m["SHARED"]

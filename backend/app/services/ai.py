@@ -273,6 +273,10 @@ def render_llm_payload(raw: LLMPayload, facts: dict[str, Any]) -> InsightPayload
 
         def sub(m: re.Match) -> str:
             ref = m.group(1)
+            # A placeholder qualified with the finding's OWN entity ({{topic.T2.mastery}} inside topic.T2) means
+            # the same as the short form. Any other entity prefix stays unknown and is rejected below.
+            if entity != "overview" and ref.startswith(entity + "."):
+                ref = ref[len(entity) + 1:]
             if ref == "name":
                 if entity not in names:
                     raise GroundingError(f"{where}: entity '{entity}' has no name")
@@ -439,7 +443,10 @@ SYSTEM_PROMPT = """Ты — аналитик-методист. Поясняй р
 7. Перед каждым плейсхолдером называй показатель словами: «освоение {{mastery}}», «изменение {{gain}}»,
    «порог трудной темы {{settings.difficult_threshold}}». Не ставь два значения подряд без пояснения.
    О динамике пиши, только если у сущности есть {{gain}}.
-8. Не более 8 findings: главное о трудных темах, темах со снижением, сравнении учебников и плане часов."""
+8. Не более 5 findings: главное о трудных темах, темах со снижением, сравнении учебников и плане часов.
+9. Используй только плейсхолдеры из PLACEHOLDERS: для finding — короткие имена из списка её entity
+   (например {{mastery}}), плюс SHARED. {{name}} пиши только в findings, entity которых не "overview".
+   Не утверждай ничего, чего нет в FACTS (например, о малой выборке, если это не следует из FACTS)."""
 
 class ProviderError(RuntimeError):
     """Provider failure with a coarse, non-sensitive kind: unavailable | model_missing | timeout | busy | provider_error."""
@@ -588,6 +595,20 @@ def _fallback_message(kind: str, settings: Settings) -> str:
     return FALLBACK_MESSAGES[kind].format(model=settings.llm_model)
 
 
+CODE_METRICS = {"status", "gain_direction", "verdict", "evidence_level"}  # meaning is given in words, never inserted
+
+
+def placeholder_map(facts: dict[str, Any]) -> dict[str, Any]:
+    """Placeholders each entity may use, derived from FACTS (so the list cannot drift from the facts)."""
+    entities = sorted({k[: -len(".name")] for k in facts if k.endswith(".name")})
+    out: dict[str, Any] = {}
+    for e in entities:
+        out[e] = sorted(k[len(e) + 1:] for k in facts
+                        if k.startswith(e + ".") and k[len(e) + 1:].rsplit(".", 1)[-1] not in CODE_METRICS)
+    out["SHARED"] = sorted(k for k in facts if k.startswith(("overview.", "settings.")))
+    return out
+
+
 def generate_insights(context: dict[str, Any], settings: Settings, llm=call_llm) -> dict[str, Any]:
     facts = build_facts(context)
     # Machine-readable fallback cause for the UI: not_configured | rejected | provider_error | unavailable |
@@ -600,7 +621,8 @@ def generate_insights(context: dict[str, Any], settings: Settings, llm=call_llm)
     if not settings.llm_enabled:
         fallback_kind = "not_configured"
     else:
-        user = "FACTS = " + json.dumps(facts, ensure_ascii=False)
+        user = ("FACTS = " + json.dumps(facts, ensure_ascii=False) +
+                "\nPLACEHOLDERS = " + json.dumps(placeholder_map(facts), ensure_ascii=False))
         if len(user) + len(SYSTEM_PROMPT) > settings.llm_max_input_chars:
             fallback_kind = "too_large"  # never truncate facts silently
             log.warning("LLM skipped: %s input characters exceed the configured limit", len(user))
