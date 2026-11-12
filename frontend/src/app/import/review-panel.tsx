@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { int } from "@/lib/format";
-import { columnLabel, groupByRow, issueTitle, summarizeErrors } from "@/lib/import-issues";
+import { columnLabel, groupByRow, importFieldLabel, issueTitle, summarizeErrors } from "@/lib/import-issues";
 import type { GuidedValidation, ImportSource, ValidationIssue } from "@/lib/types";
 
 const PAGE = 20;
@@ -221,8 +221,12 @@ export function ReviewPanel({ report, source, page, setPage, committing, done, o
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Строка</TableHead>
-                    {cols.map((k) => <TableHead key={k} className="font-mono text-xs">{k === "source_column" ? "столбец" : k}</TableHead>)}
+                    <TableHead scope="col">Строка</TableHead>
+                    {cols.map((k) => (
+                      <TableHead key={k} scope="col" className="min-w-28 whitespace-normal text-xs">
+                        {k === "source_column" ? "Столбец источника" : importFieldLabel(k)}
+                      </TableHead>
+                    ))}
                   </TableRow>
                 </TableHeader>
                 <TableBody>

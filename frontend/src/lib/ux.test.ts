@@ -5,7 +5,7 @@ import { observationSeries } from "@/components/charts";
 import { factLabel } from "./facts";
 import { ci } from "./format";
 import { gainText, summarizeGain } from "./gain";
-import { columnLabel, groupByRow, summarizeErrors } from "./import-issues";
+import { COLUMN_LABEL, columnLabel, groupByRow, importFieldLabel, summarizeErrors } from "./import-issues";
 import { filterConflicts, inapplicableFilters, scopeLabel, scopedHref } from "./scope";
 import type { Gain, Meta, TrendPoint } from "./types";
 
@@ -114,6 +114,20 @@ describe("F7 import issues", () => {
     const s = summarizeErrors({ errors, error_count: 900 });
     expect(s.rowsExact).toBe(false);
     expect(s.headline).toBe("Исправьте не менее 2 строк. Найдено 900 ошибок; данные ещё не импортированы.");
+  });
+
+  it("provides preview display labels while keeping technical accessors and unknown fields", () => {
+    expect(COLUMN_LABEL).toMatchObject({
+      school: "Код школы", student_id: "Код ученика", topic_id: "Код темы",
+      assessment_id: "Код оценивания", class: "Класс", subject: "Предмет", topic_name: "Название темы",
+      item_id: "Код задания", grade: "Параллель", assessment_type: "Тип оценивания",
+      assessment_date: "Дата оценивания", score: "Полученный балл", max_score: "Максимальный балл",
+      textbook_id: "Код учебника", teaching_hours: "Учебные часы", comparison_group: "Группа сравнения",
+    });
+    expect(columnLabel("student_id")).toEqual({ header: "student_id", label: "Код ученика" });
+    expect(importFieldLabel("constructor")).toBe("constructor");
+    expect(importFieldLabel("__proto__")).toBe("__proto__");
+    expect(columnLabel("unexpected_field")).toEqual({ header: "unexpected_field", label: "unexpected_field" });
   });
 
   it("groups by row with file-level issues first and keeps exact headers", () => {
