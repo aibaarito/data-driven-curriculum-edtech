@@ -307,4 +307,4 @@ def test_placeholder_map_lists_own_metrics_without_internal_codes():
     assert "mastery" in m["topic.T1"] and "gain" in m["topic.T1"]
     assert "status" not in m["topic.T1"] and "gain_direction" not in m["topic.T1"]
     assert "verdict" not in m["comparison.0"]
-    assert "overview.students" in m["SHARED"]
+    assert "SHARED" not in m and "overview.students" in ai.global_placeholders(ai.build_facts(CTX))

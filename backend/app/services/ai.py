@@ -444,10 +444,11 @@ SYSTEM_PROMPT = """Ты — аналитик-методист. Поясняй р
    «порог трудной темы {{settings.difficult_threshold}}». Не ставь два значения подряд без пояснения.
    О динамике пиши, только если у сущности есть {{gain}}.
 8. Не более 5 findings: главное о трудных темах, темах со снижением, сравнении учебников и плане часов.
-9. Используй только плейсхолдеры из PLACEHOLDERS: для finding — короткие имена из списка её entity
-   (например {{mastery}}), плюс SHARED. {{name}} пиши только в findings, entity которых не "overview".
-   Не утверждай ничего, чего нет в FACTS (например, о малой выборке, если это не следует из FACTS).
-10. summary — общий вывод без {{name}} и без названий тем: только слова и {{overview.*}}/{{settings.*}}.
+9. Плейсхолдеры: в finding — только короткие имена из ENTITY_PLACEHOLDERS[её entity] (например {{mastery}}) и
+   глобальные из GLOBAL_PLACEHOLDERS (например {{overview.students}}). GLOBAL_PLACEHOLDERS — не сущность: не пиши
+   его в поле entity. Не утверждай ничего, чего нет в FACTS (например, о малой выборке, если это не следует из FACTS).
+10. В summary, limitations и next_steps НИКОГДА не пиши {{name}} и названия: там только слова и
+   GLOBAL_PLACEHOLDERS. Говори о темах обобщённо («трудная тема», «тема со снижением»).
 
 ПРИМЕР (вымышленная сущность topic.EX; в ответе используй только сущности из FACTS):
 FACTS = {"overview.students": 50, "topic.EX.name": "…", "topic.EX.mastery": 41.0, "topic.EX.status": "difficult",
@@ -615,8 +616,11 @@ def placeholder_map(facts: dict[str, Any]) -> dict[str, Any]:
     for e in entities:
         out[e] = sorted(k[len(e) + 1:] for k in facts
                         if k.startswith(e + ".") and k[len(e) + 1:].rsplit(".", 1)[-1] not in CODE_METRICS)
-    out["SHARED"] = sorted(k for k in facts if k.startswith(("overview.", "settings.")))
     return out
+
+
+def global_placeholders(facts: dict[str, Any]) -> list[str]:
+    return sorted(k for k in facts if k.startswith(("overview.", "settings.")))
 
 
 def generate_insights(context: dict[str, Any], settings: Settings, llm=call_llm) -> dict[str, Any]:
@@ -632,7 +636,8 @@ def generate_insights(context: dict[str, Any], settings: Settings, llm=call_llm)
         fallback_kind = "not_configured"
     else:
         user = ("FACTS = " + json.dumps(facts, ensure_ascii=False) +
-                "\nPLACEHOLDERS = " + json.dumps(placeholder_map(facts), ensure_ascii=False))
+                "\nENTITY_PLACEHOLDERS = " + json.dumps(placeholder_map(facts), ensure_ascii=False) +
+                "\nGLOBAL_PLACEHOLDERS = " + json.dumps(global_placeholders(facts), ensure_ascii=False))
         if len(user) + len(SYSTEM_PROMPT) > settings.llm_max_input_chars:
             fallback_kind = "too_large"  # never truncate facts silently
             log.warning("LLM skipped: %s input characters exceed the configured limit", len(user))
