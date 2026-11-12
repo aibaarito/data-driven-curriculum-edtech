@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import {
   choiceToSelect,
+  type FieldProblem,
   fieldProblems,
   ignoredColumns,
   type Mapping,
@@ -190,15 +191,17 @@ const VALUE_HINT: Record<string, string> = {
   school: "Код без пробелов",
 };
 
-export function MappingStep({ fields, inspection, mapping, issues, disabled, onChange }: {
+export function MappingStep({ fields, inspection, mapping, issues, disabled, onChange, problemsOverride, title }: {
   fields: ImportFieldInfo[];
   inspection: SheetInspection;
   mapping: Mapping;
   issues: ConfigIssue[];
   disabled: boolean;
   onChange: (field: string, choice: FieldChoice | undefined) => void;
+  problemsOverride?: Record<string, FieldProblem[]>;
+  title?: string;
 }) {
-  const problems = fieldProblems(fields, mapping, inspection, issues);
+  const problems = problemsOverride ?? fieldProblems(fields, mapping, inspection, issues);
   const required = fields.filter((f) => f.required);
   const optional = fields.filter((f) => !f.required);
   const optionalActive = optional.some((f) => mapping[f.field]);
@@ -212,6 +215,7 @@ export function MappingStep({ fields, inspection, mapping, issues, disabled, onC
           {generalIssues.map((i, k) => <li key={k}>{i.message}</li>)}
         </ul>
       )}
+      {title && <p className="text-xs text-muted-foreground">{title}</p>}
       <FieldList fields={required} labels={labels} inspection={inspection} mapping={mapping} problems={problems} disabled={disabled} onChange={onChange} />
       <details className="rounded-lg border" open={optionalActive || undefined}>
         <summary className="cursor-pointer rounded-lg px-3 py-2 text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring">

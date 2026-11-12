@@ -12,6 +12,7 @@ import openpyxl
 import pytest
 from sqlalchemy import text
 
+from app.services import import_layouts as lay
 from app.services import import_prep as prep
 from app.services.importer import FileFormatError
 from tests.conftest import DEMO_CSV, HEADER, make_csv
@@ -99,7 +100,7 @@ def test_csv_single_pseudo_sheet_and_bom():
     wb = prep.read_workbook(b"\xef\xbb\xbf" + make_csv(["s,STU-1,7,7А,М,T1,Т,A1,pre,2025-09-10,G1,Q1,2,4,TB,10"]),
                             "f.csv", max_data_rows=100)
     assert [s.name for s in wb.sheets] == ["CSV"]
-    cols = prep.header_columns(wb.sheets[0], 1)
+    cols = prep.header_columns(wb.sheets[0], prep.Selection(1))
     assert cols[0].header == "school"  # BOM removed
     assert set(prep.suggest_mapping(cols)["suggested"]) >= set(prep.REQUIRED_COLUMNS)
 
@@ -108,8 +109,9 @@ def test_title_rows_merged_title_and_header_suggestion():
     content = multi_sheet_ru()
     wb = prep.read_workbook(content, "f.xlsx", max_data_rows=100)
     sheet = wb.get("Результаты")
-    assert prep.suggest_header_row(sheet) == {"row": 3, "confidence": "high",
-                                              "reason": "В строке 3 найдено 10 знакомых названий столбцов."}
+    hdr = prep.suggest_header_row(sheet)
+    assert (hdr["row"], hdr["confidence"], hdr["header_rows"]) == (3, "high", 1)
+    assert hdr["reason"].startswith("В строке 3 найдено")
     assert prep.suggest_sheet(wb.sheets)["name"] == "Результаты"
     summaries = {s["name"]: s for s in map(prep.sheet_summary, wb.sheets)}
     assert summaries["Скрытый"]["hidden"] is True
@@ -148,7 +150,7 @@ def test_ambiguous_aliases_are_not_preselected(header, fields):
 def test_duplicate_and_blank_headers_keep_distinct_column_ids():
     content = workbook({"Лист": [["Баллы", "баллы ", None, "Код ученика"], [1, 2, 3, "S1"]]})
     sheet = prep.read_workbook(content, "f.xlsx", max_data_rows=100).sheets[0]
-    ins = prep.inspect_sheet(sheet, 1)
+    ins = prep.inspect_sheet(sheet, prep.Selection(1))
     assert [c["id"] for c in ins["columns"]] == ["c0", "c1", "c2", "c3"]
     assert ins["columns"][2]["label"] == "Столбец C (без заголовка)"
     assert ins["duplicate_headers"] == [{"header": "Баллы", "letters": ["A", "B"]}]
@@ -159,14 +161,14 @@ def test_duplicate_and_blank_headers_keep_distinct_column_ids():
 def test_wide_layout_is_flagged():
     rows = [["Код ученика", "Класс", "Дроби", "Уравнения", "Проценты"], ["S1", "7А", 3, 4, 5], ["S2", "7А", 1, 2, 2]]
     sheet = prep.read_workbook(workbook({"Л": rows}), "f.xlsx", max_data_rows=100).sheets[0]
-    codes = {n["code"] for n in prep.inspect_sheet(sheet, 1)["notices"]}
+    codes = {n["code"] for n in prep.inspect_sheet(sheet, prep.Selection(1))["notices"]}
     assert "WIDE_LAYOUT_SUSPECTED" in codes
 
 
 def test_repeated_header_inside_data_is_reported():
     rows = [RU_HEADER, ru_row(), [], RU_HEADER, ru_row(sid="S9")]
     sheet = prep.read_workbook(workbook({"Л": rows}), "f.xlsx", max_data_rows=100).sheets[0]
-    notices = prep.inspect_sheet(sheet, 1)["notices"]
+    notices = prep.inspect_sheet(sheet, prep.Selection(1))["notices"]
     assert notices[0]["code"] == "REPEATED_HEADER" and notices[0]["rows"] == [4]
 
 
@@ -217,11 +219,11 @@ def test_row_limit_and_zip_bomb_guard(monkeypatch):
 
 
 def test_shared_value_rules():
-    assert prep.validate_shared_value("grade", "7") is None
-    assert prep.validate_shared_value("grade", "7А")
-    assert prep.validate_shared_value("assessment_date", "09/15/2026")
-    assert prep.validate_shared_value("assessment_type", "входная")
-    assert prep.validate_shared_value("assessment_id", "Иван Петров")
+    assert lay.validate_shared_value("grade", "7") is None
+    assert lay.validate_shared_value("grade", "7А")
+    assert lay.validate_shared_value("assessment_date", "09/15/2026")
+    assert lay.validate_shared_value("assessment_type", "входная")
+    assert lay.validate_shared_value("assessment_id", "Иван Петров")
     assert "score" not in prep.SHARED_ELIGIBLE and "student_id" not in prep.SHARED_ELIGIBLE
     assert "max_score" not in prep.SHARED_ELIGIBLE and "textbook_id" not in prep.SHARED_ELIGIBLE
 
@@ -257,7 +259,7 @@ def test_multi_sheet_russian_workbook_full_flow(client, migrated_db):
     assert src["sheet_suggestion"]["name"] == "Результаты"
     assert src["auto_ready"] is False  # subject/type are not in the file, textbook column is ambiguous
     ins = src["inspection"]
-    assert ins["header_row"] == 3 and [p["row"] for p in ins["preview"]][:3] == [1, 3, 4]
+    assert ins["header_row"] == 3 and [p["row"] for p in ins["preview"]][:4] == [1, 2, 3, 4]  # blank row 2 kept
     before = snapshot(migrated_db)
     v = validate(client, src, "Результаты", 3, ru_fields()).json()
     assert v["ok"], v["errors"]
@@ -345,7 +347,7 @@ def test_existing_numeric_date_and_cross_record_rules_still_apply(client):
     src = upload_source(client, multi_sheet_ru(rows), "f.xlsx").json()
     v = validate(client, src, "Результаты", 3, ru_fields()).json()
     codes = {(e["row"], e["code"]) for e in v["errors"]}
-    assert (4, "AMBIGUOUS_NUMBER") in codes and (6, "DUPLICATE_ROW") in codes and (7, "INVALID_DATE") in codes
+    assert (4, "AMBIGUOUS_NUMBER") in codes and (6, "DUPLICATE_ROW") in codes and (7, "DATE_FORMAT_REQUIRED") in codes  # day/month order is never guessed
 
 
 def test_formula_cells_without_value_block_validation(client):

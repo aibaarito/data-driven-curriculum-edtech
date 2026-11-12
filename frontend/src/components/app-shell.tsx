@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  Table2,
   BarChart3,
   BookOpenCheck,
   FileText,
@@ -32,6 +33,7 @@ export const NAV = [
   { href: "/", label: t.nav.dashboard, icon: LayoutDashboard },
   { href: "/decisions", label: t.nav.decisions, icon: Target },
   { href: "/import", label: t.nav.import, icon: Upload },
+  { href: "/datasets", label: t.nav.datasets, icon: Table2 },
   { href: "/topics", label: t.nav.topics, icon: BarChart3 },
   { href: "/curriculum", label: t.nav.curriculum, icon: GitBranch },
   { href: "/textbooks", label: t.nav.textbooks, icon: Scale },

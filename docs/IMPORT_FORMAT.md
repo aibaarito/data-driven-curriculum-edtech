@@ -3,118 +3,159 @@
 One row = points of one anonymous student on one topic (or one item of a topic) in one assessment.
 Columns are listed on the Import page and in `GET /api/imports/schema`.
 
-## Guided import (Импорт данных page)
+## Flexible guided import (Импорт данных page)
 
-The import page accepts school spreadsheets whose layout differs from the template, through an explicit sequence.
-Nothing is written to the analytical data until step 6.
+The importer accepts common school spreadsheets without converting them to the template first. It recognises common
+layouts and proposes an interpretation; the user confirms or corrects every part; only analyses the data actually
+supports are offered. **Nothing is written until the final confirmation**, and nothing is guessed silently.
 
-| Step | What you do | What the app does |
+### Workflow
+| Step | What the user does | What the application does |
 |---|---|---|
-| 1. Файл | Choose a `.csv` or `.xlsx` file (≤ `MAX_UPLOAD_MB`, default 10 MB) | Stores the file with the open preview only; lists worksheets |
-| 2. Лист | Choose one worksheet (xlsx only) | Suggests a sheet only if it is the single visible sheet with data or clearly has the most recognised headers. Hidden sheets are never suggested; they can be chosen manually and are labelled «скрытый лист». Empty sheets cannot be chosen. One sheet is imported, never all |
-| 3. Заголовок | Confirm or change the header row | Shows the first rows with **original row numbers** and suggests a header row (confidence high/low with the reason). Rows above the header are not imported. The header must be one of the first 50 rows |
-| 4. Сопоставление | Map each application field to a source column, a confirmed shared value, or (where allowed) "not in file" | Suggests columns from a small alias list; shows sample values, required/optional status and problems per field |
-| 5. Проверка | Click «Проверить данные» | Runs the **same validator** as before on the mapped rows; reports counts, errors and warnings with original sheet row numbers |
-| 6. Импорт | Review the summary and confirm | Commits exactly the validated rows in one transaction |
+| 1. Файл | Uploads `.csv` or `.xlsx` (≤ `MAX_UPLOAD_MB`, default 10 MB) | Stores the file with the open preview only (dropped on confirm, cancel or expiry) |
+| 2. Данные | Chooses the worksheet; for CSV confirms encoding/delimiter; chooses the header row, optionally a two-row header, a column range and the last data row; decides on flagged rows | Shows the first 60 rows with **original row numbers**, suggests the sheet and header, flags rows that need a decision |
+| 3. Структура | Confirms or changes the layout: records, gradebook, aggregate table, general table | Suggests a layout with a reason |
+| 4. Сопоставление и правила | Maps columns (or sets confirmed shared values), configures result columns, roles or types; declares how results, numbers, dates and missing marks are written | Shows sample values, ambiguity and per-field problems |
+| 5. Проверка | Clicks «Проверить данные» | Validates structure → transformations → records → cross-record and database conflicts; shows counts, traceable issues and an **analysis capability assessment** |
+| 6. Импорт | Reviews the summary and confirms | Commits exactly the validated result in one transaction |
+| 7. Анализ | Opens an available analysis | Lists what the stored data supports and why other analyses are unavailable |
 
-**Standard template:** if the worksheet, header row and every required field are unambiguous (e.g. `template.csv` or the
-demo dataset), everything is preselected and validation runs immediately after upload; the settings stay visible
-under «Показать и изменить…». Validation is read-only, so this needs no extra click.
+Any change to the sheet, CSV options, header, range, excluded rows, layout, mapping or rules discards the previous
+validation in the page **and on the server**; an earlier validation can never be confirmed (`409 STALE_PREVIEW`).
+Users can go back to any step without uploading the file again. The standard template is recognised; its validation
+runs immediately after upload (still read-only).
 
-### Expected record structure
-One row per student × topic (or item) × assessment. Not supported in this version, and not silently "mapped":
-one column per topic or item (wide tables), several tables on one sheet, printed reports with subtotals.
-The page warns when it detects a likely wide table (several unmapped numeric columns and no score column) and blocks
-validation rows that repeat the header inside the data (`REPEATED_HEADER`). Convert such sheets to the template layout
-first; there is no automatic wide-to-long reshaping.
+### Input variations
+* **CSV:** delimiter detected among comma, semicolon and tab from consistent field counts (quotes respected); encoding
+  UTF-8 (with or without BOM) or Windows-1251. Low-confidence detection is shown, and both can be overridden. Cells stay
+  text, so quoted values and identifiers with leading zeros (`007`) are preserved.
+* **XLSX:** read-only; worksheets listed with size and hidden/empty labels (hidden sheets are never auto-selected).
+  **Two-row headers:** the column label becomes «Группа · Подзаголовок»; the group comes from a merged range in the
+  upper row (read from the sheet XML) or from the cell directly above — never extended by guessing. Cells merged
+  vertically over both header rows keep their label. Merged *data* cells are not forward-filled.
+* **Titles, blank rows, explanations, repeated headers, totals:** rows above the header are not imported; blank rows are
+  counted; rows that repeat the header, look like totals («Итого», «Всего», «Среднее», «Total»…) or contain only
+  explanatory text are **flagged, not removed**. The user excludes a kind explicitly; excluded row numbers are listed
+  in the result. A **range** (first/last column, last data row) isolates one table when a sheet holds several.
+* Duplicate and empty headers are shown; columns are identified by position (`c0` = column A), so equal headers work.
 
-### Columns, headers and suggestions
-* Source columns are identified by position (`c0` = column A), so two columns with the same or an empty header stay
-  distinct. Empty headers are shown as «Столбец C (без заголовка)»; duplicated headers are listed.
-* Header comparison ignores a UTF‑8 BOM, outer spaces, letter case, `ё/е` and separators (`_ - . / , : ; ( ) № #`).
-  Nothing else is fuzzy-matched.
-* Aliases (examples): `ID ученика`, `Код ученика`, `Student ID` → `student_id`; `Предмет`, `Subject` → `subject`;
-  `Тема`, `Topic name` → `topic_name`; `Баллы`, `Набранный балл`, `Score` → `score`; `Максимальный балл`, `Max score`
-  → `max_score`; `Дата`, `Дата оценивания` → `assessment_date`; `Параллель` → `grade`; `Класс` → `class`.
-  The full list is `ALIASES` in `backend/app/services/import_prep.py`.
-* Never preselected (shown as "возможные столбцы", the user must choose): `Оценка`/`Отметка`/`Результат`/`%`
-  (may be a 5‑point mark or a percentage), `Учебник` (code or title?), `ФИО`/`Ученик` (personal data, not an ID),
-  `Работа`, `Тип`, and any field for which two columns match.
-* One source column can feed only one field (the other fields show it as «уже выбран для …»). Unused columns are
-  listed as ignored and shown again in the confirmation summary.
-* Changing the worksheet resets the mapping. Changing the header row keeps a column choice only if that column
-  position still has the same header text; other fields get the new suggestions. Any change discards the previous
-  validation result.
+### Layouts (explicit adapters)
+**A. Records (`long`)** — one row = one student's result for one topic or item in one assessment.
+```
+Код ученика | Класс | Код темы | Тема | Код работы | Дата | Баллы | Максимальный балл
+SYN-01      | 7А    | T-FR     | Дроби| KR-1       | 20.05.2026 | 3 | 4
+```
+**B. Gradebook (`wide`)** — one row = one student, several result columns.
+```
+Код ученика | Класс | Контрольная 1 (merged)           | Итого
+            |       | Задание 1 | Задание 2 | Задание 3 |
+SYN-01      | 7А    | 1         | 2         | н         | 3
+```
+The user selects identity columns (or shared values) and result columns; for each result column gives the topic code
+and name (name pre-filled from the header), an optional item code and the maximum score (points mode); assessment
+id/type/date can be per column when columns are different assessments. Each non-empty cell becomes one record traced to
+its **sheet row and column** (stored in `assessment_results.source_row/source_column`). Empty cells create no record;
+declared missing marks create no record and are not zero. Columns that look like totals/averages are listed but not
+preselected; selecting a total together with its items of the same topic is rejected (`MIXED_GRANULARITY`). The review
+explains why there are more records than rows. Expansion is bounded by `MAX_UPLOAD_ROWS` (`413 TOO_MANY_RECORDS`).
+«Заполнить пустые коды тем из названий» creates deterministic transliterated codes only on request; equal codes mean the
+same topic in the database, so the user checks them.
 
-### Shared values («Одно значение для всего файла»)
-Allowed only for `subject`, `grade`, `class`, `assessment_id`, `assessment_type`, `assessment_date`,
-`comparison_group`, `school`. A field takes its values from exactly one source, so a shared value can never overwrite
-a cell. The value is validated with the same rules as a cell (grade 1–12, type pre/post/current, date
-`ГГГГ-ММ-ДД`/`ДД.ММ.ГГГГ`, codes without spaces), applied only to rows that contain mapped data, shown in the record
-preview and the confirmation summary, and requires the explicit checkbox «Подтверждаю…».
-Not eligible (never invented): `student_id`, `topic_id`, `topic_name`, `score`, `max_score`, `textbook_id`, `item_id`,
-hours and topic settings. For `textbook_id` the only alternative to a column is the explicit choice «В файле нет
-учебника» — the same as the template's empty textbook column (warning `MISSING_TEXTBOOK`; those classes are not
-compared). No field was made optional for the guided flow.
+**C. Aggregate (`aggregate`)** — one row = a class, topic, textbook group or cohort with an average, percentage or count.
+```
+Класс | Тема  | Средний % | Количество учеников
+7А    | Дроби | 58,5      | 24
+```
+Roles: class, grade, subject, topic code/name, textbook, assessment, date, **value**, maximum, number of students.
+The value is declared as a percentage (0–100 or fractions 0–1) or a mean score with a known maximum (column or entered
+value). Stored as an **aggregate dataset**, never as student records; the summary shows per-group values, the unweighted
+mean of group values, and a weighted mean only when every row has a number of students. No distributions, confidence
+intervals, paired gains or textbook inference are computed from aggregates.
 
-### Cells, dates and formulas
-* Excel numbers and dates are used as stored (no locale guessing); text cells follow the number rules below.
-* Dates: `ГГГГ-ММ-ДД`, `ДД.ММ.ГГГГ` or an Excel date cell. Other formats (e.g. `09/15/2026`) are `INVALID_DATE`; the app
-  does not guess between day-first and month-first.
-* `85%` is not a score; `7А` is not split into grade and class; a missing maximum is never assumed to be 100.
-* Merged cells are not forward-filled: only the top-left cell has a value, the others are empty (and usually produce
-  `MISSING_VALUE`).
-* Formulas are **never executed**. The value cached by Excel is used; a formula without a cached value (files written
-  by some generators) in a mapped column is `FORMULA_WITHOUT_VALUE` — open the file in Excel, recalculate, save.
-* Rows with data only in ignored columns are not records and are reported (`ROWS_WITHOUT_MAPPED_DATA` warning);
-  fully empty rows are counted (`BLANK_ROWS`). Invalid rows are never skipped: any error blocks the whole import.
+**D. General table (`general`)** — anything else. Stored as a **general dataset** (separate tables `datasets` /
+`dataset_rows`, original cell texts) and explored on the «Наборы данных» page: row/column counts, editable column types
+(number, date, category, text, identifier, yes/no), missing values, duplicate rows, numeric summaries and histograms
+(identifiers excluded), category frequencies, date ranges, search, typed sorting, exact-value filters and CSV export.
+General data never feeds the educational recommendation services.
 
-### Counts in the result
-«Найдено записей» = non-blank data rows; «С ошибками» = distinct rows with at least one error; «Без ошибок» = the
-difference; «Будет импортировано» = all records if there are no errors, otherwise 0 (partial imports are not allowed).
-If validation stops at the structure level, the counts say «не проверены» instead of showing 0.
+**Unsupported (explained, not imported as records):** complex cross-tabulations (topics × classes with student
+counts in cells), several unrelated tables in one region (restrict the range or exclude repeated headers), printed
+reports with subtotals that cannot be separated. Such sheets can still be explored as a general table.
 
-### Common errors and how to fix them
-| Message | What to do |
-|---|---|
-| «Выберите столбец для поля “…”» | Choose the column, or a shared value / «нет в файле» where offered |
-| «Столбец … уже выбран для поля …» | Clear the other field first; one column feeds one field |
-| «Подтвердите, что заданные вручную значения…» | Tick the confirmation under the shared values |
-| «Лист “…”, строка 18: Балл больше максимального» | Correct the cell in the source file and upload again |
-| «Неверная дата» | Use `ДД.ММ.ГГГГ` or a real Excel date |
-| «Предпросмотр устарел после изменения…» | Click «Проверить снова»; an older result cannot be committed |
-| «Срок действия предпросмотра истёк» | Upload the file again |
+### Column mapping
+Suggestions use canonical field names, a small Russian/English alias list (`ALIASES` in
+`backend/app/services/import_prep.py`), conservative header normalisation (BOM, spaces, case, ё/е, separators) and
+column profiles (numeric/percent/date share, distinct values, leading zeros). Examples: «ID ученика», «Student ID» →
+`student_id`; «Предмет», «Subject» → `subject`; «Тема», «Topic» → `topic_name`; «Баллы», «Points» → `score`;
+«Максимум», «Max points» → `max_score`; «Дата», «Assessment date» → `assessment_date`. Never preselected:
+«Оценка», «Отметка», «Результат», «%» (mark, points or percent?), «Учебник» (code or title?), «ФИО», «Ученик»
+(personal data is not an identifier), «Работа», «Тип», and any field matched by two columns. One column feeds one field.
+Shared values are allowed only for subject, grade, class, assessment id/type/date, comparison group and school, require
+an explicit confirmation, and never replace cell values (one source per field). Student identities, topics, scores,
+maximum scores and textbook assignments are never invented; the textbook can only be explicitly marked as absent.
 
-### Safety properties (enforced by the backend, not only the page)
-* Every configuration is re-validated on the server: sheet exists, header row is a non-empty row among the first 50,
-  column IDs exist, fields are known, required fields resolved, no column reused, shared values eligible, valid and
-  confirmed (`422 INVALID_CONFIGURATION` with per-field issues).
-* Each upload gets a random session key (only its hash is stored); inspect/validate/commit/discard of a guided preview
-  require it (`403`). Validation is bound to `config_hash = sha256(file sha256 + configuration)`; a new validation
-  request first clears the previous result; commit requires the hash of the **last** validation (`409 STALE_PREVIEW`).
-* Commit uses the unchanged existing path: advisory lock, conflict re-check, single transaction, staged rows only.
-* The stored file is deleted on commit, discard and expiry. Cell values are not logged.
-* Workbook limits: ≤ 50 sheets, ≤ 200 columns, ≤ 4 000 000 iterated cells, 60 s per read, uncompressed size ≤ 100 MB
-  and ≤ 2000 zip members, row limit `MAX_UPLOAD_ROWS` (default 200 000). Files are read locally with openpyxl in
-  read-only mode; nothing is sent to external services or an AI model.
+### Score interpretation and parsing rules
+| Rule | Options | Default |
+|---|---|---|
+| Result | points with a known maximum · percentages (0–100 or 0–1; «85%» accepted) → stored as score of 100 · correct/incorrect with user-listed tokens → 1/0 of 1 · grading scale with a user-entered table «mark → %» | points |
+| Decimal separator | auto (`.` or `,`; `1,000` is ambiguous and rejected) · comma (`1.000,5`) · dot (`1,000.5`) | auto |
+| Date format | auto (`ГГГГ-ММ-ДД`, `ДД.ММ.ГГГГ`, Excel dates) · ДД.ММ.ГГГГ · ГГГГ-ММ-ДД · ДД/ММ/ГГГГ · ММ/ДД/ГГГГ · ДД-ММ-ГГГГ | auto |
+| Missing marks | user list, e.g. «н», «н/я», «-» → no record, counted, never zero or "failed" | none |
+Never done: maximum = largest observed value; 1–5 → % without a table; guessing `03/04/2026` (auto mode reports
+`DATE_FORMAT_REQUIRED`); missing → 0. Formulas are never executed: cached values are used; a mapped formula cell without
+a cached value is `FORMULA_WITHOUT_VALUE`. The confirmation summary lists the rules in Russian.
+
+### Validation stages, issues and counts
+Each issue shows the worksheet, original row, source column letter, a Russian message, a bounded value preview (≤ 40
+characters; student identifiers and name-like values are never shown) and a corrective action; identical issues of one
+row are collapsed with a count. Blocking errors and warnings are separate. Counts: source rows, excluded rows, records
+after transformation, valid and invalid records, records already imported (skipped), records eligible for import.
+**Partial import is not supported:** any error blocks confirmation until it is fixed in the file or the settings.
+
+### Analysis capabilities (from the actual analytical code)
+| Analysis | Level | Requires |
+|---|---|---|
+| Overview / mastery | student | outcome results (type `post` or `current`) with a maximum > 0 |
+| Topic analysis | topic | outcome results with topics; a status needs ≥ `min_students_topic` students per topic |
+| Pre → post gain | student (paired) | the same student and topic in a `pre` and a `post` assessment with one `comparison_group`; ≥ `min_students_topic` pairs per topic |
+| Trends | topic | outcome results on ≥ 2 dates |
+| Textbook comparison | class | textbooks per class and subject; ≥ 2 textbooks in one subject and grade, each with ≥ `min_classes_textbook` classes; common outcome items (checked on the page) |
+| Hours optimizer | topic | teaching hours per class and topic, plus the total entered in the optimizer |
+| Curriculum map | topic | topics; prerequisites make it informative |
+| Table exploration | table | any general or aggregate dataset |
+| Aggregate summary | aggregate | an aggregate dataset with a value and a group column |
+The review shows this for the file being imported; after import `GET /api/analytics/capabilities` (honouring filters)
+shows it for all stored data. Missing metadata disables only the analyses that need it (e.g. «Для сравнения учебников
+укажите столбец с учебником.»); statistical thresholds are unchanged.
+
+### Data handling, limits and AI
+* Files are parsed locally (openpyxl read-only, Python csv); nothing is sent to external services. **AI is not used for
+  import or mapping**; the workflow is fully deterministic. Cell contents are not logged.
+* Limits: upload ≤ 10 MB; uncompressed xlsx ≤ 100 MB and ≤ 2000 parts; ≤ 50 sheets; ≤ 200 columns; ≤ 4 000 000
+  iterated cells and 60 s per read; header within the first 50 rows; ≤ `MAX_UPLOAD_ROWS` (200 000) records after
+  expansion; general datasets ≤ 50 000 rows and 2 000 000 cells; preview 60 rows.
+* Each upload has a random session key (only its hash is stored); inspect/validate/confirm/cancel require it (`403`).
+  Validation is bound to `sha256(file + configuration)`. Previews expire after `PREVIEW_TTL_MINUTES` (default 60):
+  `410`, staged rows and the stored file are dropped. Confirmation keeps the existing advisory lock, conflict re-check
+  and single transaction; datasets are written in one transaction and never touch assessment tables.
+* Dataset CSV exports prefix cells beginning with `=`, `+`, `-`, `@`, tab or CR with `'` (plain numbers such as `-5`
+  stay numbers); stored values are unchanged.
 
 ### API
-`POST /api/imports/sources` (multipart `file`) → sheets, suggestions, `session_key` ·
-`POST /api/imports/{id}/inspect` `{session_key, sheet, header_row?}` ·
-`POST /api/imports/{id}/validate` `{session_key, sheet, header_row, fields: {field: {source: "column", column} |
-{source: "value", value} | {source: "none"}}, confirm_shared}` ·
-`POST /api/imports/{id}/commit` `{session_key, config_hash}` · `POST /api/imports/{id}/discard` `{session_key}`.
-The one-step `POST /api/imports/preview` (exact template headers in row 1, first sheet) is unchanged for scripts; its
-previews commit without a body as before.
+`POST /api/imports/sources` · `POST /api/imports/{id}/inspect` `{session_key, sheet, header_row?, header_rows,
+first_col, last_col, last_row, exclude, csv:{encoding, delimiter}}` · `POST /api/imports/{id}/validate` (the same plus
+`layout`, `fields`, `result_columns`, `roles`, `metric`, `types`, `dataset_name`, `rules`, `confirm_shared`) ·
+`POST /api/imports/{id}/commit` `{session_key, config_hash}` · `POST /api/imports/{id}/discard` `{session_key}` ·
+`GET /api/datasets`, `GET|DELETE /api/datasets/{id}`, `PUT /api/datasets/{id}/columns`, `GET /api/datasets/{id}/rows`,
+`GET /api/datasets/{id}/export.csv` · `GET /api/analytics/capabilities`. The one-step `POST /api/imports/preview`
+(exact template headers in row 1) is unchanged for scripts.
 
-### Example workbook
-`GET /api/imports/example-workbook.xlsx` (button «Пример Excel» on the page; source
-`backend/app/assets/data/example_guided_import.xlsx`, regenerate with `python backend/scripts/generate_example_workbook.py`).
-Fully synthetic (`SYN-…` codes). It has an instruction sheet, the sheet «Результаты» with a merged title row, a blank
-row and Russian headers in row 3, an ambiguous «Учебник» column and an «Примечание» column to ignore, and a hidden
-sheet. Subject and assessment type are absent. To try it: upload → keep «Результаты» and row 3 → Предмет: «Одно
-значение…» = `Математика` → Тип оценивания: «Одно значение…» = `pre` → Идентификатор учебника: column J «Учебник» →
-tick the confirmation → «Проверить данные» (36 records) → confirm or «Отменить».
+### Synthetic examples
+`docs/examples/` (regenerate with `python backend/scripts/generate_import_examples.py`):
+`example_wide_gradebook.xlsx` (title, two-row merged header, «Итого» row and column, «н» marks),
+`example_aggregate_topics.xlsx` (class × topic «Средний %» with student counts and an «Среднее» row),
+`example_general_table.csv` (non-educational, Windows-1251, `;`, decimal comma, leading zeros). The page also offers
+`example_guided_import.xlsx` (records with a title row, Russian headers and a hidden sheet).
 
 ## Numbers
 | Input | Result |

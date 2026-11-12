@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import OperationalError, SQLAlchemyError
 
+from app.api.dataset_routes import router as dataset_router
 from app.api.decision_routes import router as decision_router
 from app.api.import_routes import router as import_router
 from app.api.routes import router
@@ -50,6 +51,7 @@ app.add_middleware(BodySizeLimitMiddleware)
 app.add_middleware(AccessControlMiddleware)  # unauthenticated requests never reach handlers
 app.add_middleware(RequestContextMiddleware)  # outermost: every response (incl. 401/413) gets X-Request-ID + log line
 app.include_router(import_router)
+app.include_router(dataset_router)
 app.include_router(router)
 app.include_router(decision_router)
 

@@ -128,8 +128,11 @@ test("3. missing required data gives actionable errors and keeps the import bloc
   await expect(groups).toContainText("Не заполнено обязательное значение");
   await expect(groups).toContainText("Строка 6");
   await expect(groups).toContainText("Балл больше максимального");
-  await expect(groups).toContainText("столбец J «Баллы»");
-  await expect(page.getByTestId("record-counts")).toContainText("Найдено записей3");
+  await expect(groups).toContainText("столбец J");
+  await expect(groups).toContainText("Балл «Баллы»");
+  await expect(groups).toContainText("Значение: 9");
+  await expect(groups).toContainText("Что сделать:");
+  await expect(page.getByTestId("record-counts")).toContainText("Записей после преобразования3");
   await expect(page.getByTestId("record-counts")).toContainText("С ошибками2");
   await expect(page.getByTestId("commit-button")).toBeDisabled();
   // Clearing a required mapping blocks the check with a field-level message instead of a combined column list.

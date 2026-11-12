@@ -42,6 +42,12 @@ const SOURCE: ImportSource = {
   ],
   sheet_suggestion: { name: "Результаты", reason: "На этом листе больше всего знакомых названий столбцов." },
   inspection: inspection(), auto_ready: false, fields: FIELDS,
+  catalog: {
+    layouts: [], date_formats: ["auto"], encodings: ["auto"], delimiters: [],
+    aggregate_roles: [{ value: "class", label: "Класс" }, { value: "value", label: "Показатель" }],
+    types: ["number", "date", "category", "text", "identifier", "boolean"].map((t) => ({ value: t, label: t })),
+    flags: [{ value: "total", label: "итоговая строка" }, { value: "note", label: "пояснительный текст" }],
+  },
   limits: { max_upload_mb: 10, max_rows: 200000, max_columns: 200, max_sheets: 50, header_scan_rows: 50, preview_ttl_minutes: 60 },
 };
 
@@ -119,9 +125,13 @@ describe("guided import wizard", () => {
 
     await screen.findByTestId("import-preview");
     const v = calls.find((c) => c.url.includes("/validate"))!;
-    expect(v.body).toEqual({ session_key: "key-7", sheet: "Результаты", header_row: 3, confirm_shared: true, fields: {
-      student_id: { source: "column", column: "c0" }, score: { source: "column", column: "c1" },
-      subject: { source: "value", value: "Математика" }, textbook_id: { source: "column", column: "c2" } } });
+    expect(v.body).toEqual({ session_key: "key-7", sheet: "Результаты", header_row: 3, header_rows: 1, first_col: 0, last_col: null,
+      last_row: null, exclude: [], csv: { encoding: "auto", delimiter: "auto" }, layout: "long", confirm_shared: true,
+      rules: { decimal: "auto", date_format: "auto", missing_markers: [], score_mode: "points", percent_scale: "0-100",
+        true_tokens: [], false_tokens: [], scale: {} },
+      fields: {
+        student_id: { source: "column", column: "c0" }, score: { source: "column", column: "c1" },
+        subject: { source: "value", value: "Математика" }, textbook_id: { source: "column", column: "c2" } } });
     expect(screen.getByTestId("confirm-summary")).toHaveTextContent("Предмет: Математика");
     expect(screen.getByTestId("confirm-summary")).toHaveTextContent("Примечание");
 
@@ -207,5 +217,38 @@ describe("guided import wizard", () => {
     await user.selectOptions(screen.getByLabelText("Строка с названиями столбцов"), "4");
     expect(await screen.findByTestId("import-error")).toHaveTextContent("Предпросмотр устарел — загрузите файл заново");
     expect(screen.queryByTestId("prepare-panel")).not.toBeInTheDocument();
+  });
+});
+
+describe("flexible layouts in the wizard", () => {
+  const WIDE_INS = inspection(3, {
+    layout_suggestion: { layout: "wide", confidence: "medium", reason: "Журнал." },
+    flags: [{ row: 9, kind: "total", label: "итоговая строка" }], flag_counts: { total: 1 },
+    wide_suggestion: { identity: {}, total_columns: [], result_columns: [{ column: "c1", topic_name: "Баллы", item_hint: "" }] },
+    suggestions: { suggested: { student_id: { column: "c0", confidence: "alias" } }, ambiguous: {} },
+    all_columns: [0, 1, 2, 3].map((i) => ({ index: i, letter: "ABCD"[i] })),
+  });
+
+  it("shows the suggested wide layout with editable result columns and flagged rows", async () => {
+    const user = await uploadWorkbook({ ...SOURCE, inspection: WIDE_INS });
+    expect(screen.getByTestId("layout-wide")).toBeChecked();
+    const rc = screen.getByTestId("result-c1");
+    expect(within(rc).getByLabelText("Название темы")).toHaveValue("Баллы");
+    expect(within(rc).getByText("Укажите код темы.")).toBeInTheDocument();
+    expect(screen.getByTestId("flagged-rows")).toHaveTextContent("итоговая строка — 1 (строки 9)");
+    await user.click(screen.getByTestId("exclude-total"));
+    expect(screen.getByTestId("exclude-total")).toBeChecked();
+    await user.click(screen.getByRole("button", { name: "Заполнить пустые коды тем из названий" }));
+    expect(within(rc).getByLabelText("Код темы")).toHaveValue("BALLY");
+  });
+
+  it("switching to a general table hides the assessment mapping and sends confirmed types", async () => {
+    const user = await uploadWorkbook({ ...SOURCE, inspection: { ...WIDE_INS, type_suggestion: { c0: "identifier", c1: "number", c2: "text", c3: "text" } } });
+    await user.click(screen.getByTestId("layout-general"));
+    expect(screen.queryByTestId("mapping-step")).not.toBeInTheDocument();
+    await user.selectOptions(screen.getByLabelText(/B · Баллы/), "category");
+    await user.click(screen.getByTestId("run-validation"));
+    const v = calls.find((c) => c.url.includes("/validate"))!;
+    expect(v.body).toMatchObject({ layout: "general", types: { c0: "identifier", c1: "category" }, fields: {} });
   });
 });

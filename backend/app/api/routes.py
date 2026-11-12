@@ -32,7 +32,7 @@ from app.services import evidence as evd
 from app.services.ai import generate_insights
 from app.services.context import build_context, filter_labels, topic_inputs_for
 from app.services.import_prep import field_catalogue
-from app.services.import_store import ImportConflict, commit_rows, load_existing_state
+from app.services.import_store import ImportConflict, commit_dataset, commit_rows, load_existing_state
 from app.services.importer import (
     ALL_COLUMNS,
     REQUIRED_COLUMNS,
@@ -227,6 +227,19 @@ def import_commit(db: DB, batch_id: int, body: CommitBody | None = Body(None)) -
                                   "message": "Предпросмотр устарел после изменения настроек. Проверьте данные снова."})
     if not batch.validation.get("ok") or not batch.staged_rows:
         raise HTTPException(422, "Файл содержит ошибки. Исправьте их и загрузите файл заново.")
+    layout = (batch.prep_config or {}).get("layout", "long")
+    if layout in ("aggregate", "general"):
+        # General and aggregate tables are stored as datasets only; assessment tables are not touched.
+        try:
+            ds = commit_dataset(db, batch, batch.staged_rows, (batch.prep_config or {}).get("sheet", ""))
+            batch.status, batch.inserted_rows = "committed", ds.row_count
+            batch.staged_rows, batch.source_file = None, None
+            db.commit()
+        except SQLAlchemyError as exc:
+            db.rollback()
+            raise HTTPException(500, "Не удалось сохранить данные; изменения отменены.") from exc
+        return {"batch_id": batch.id, "status": "committed", "inserted_rows": ds.row_count, "skipped_rows": 0,
+                "dataset_id": ds.id, "kind": layout}
     rows = rows_from_json(batch.staged_rows)
     # Re-check conflicts: data may have changed since preview.
     state = load_existing_state(db, rows)
@@ -249,7 +262,7 @@ def import_commit(db: DB, batch_id: int, body: CommitBody | None = Body(None)) -
         db.rollback()
         raise HTTPException(500, "Не удалось сохранить данные; изменения отменены.") from exc
     return {"batch_id": batch.id, "status": "committed", "inserted_rows": inserted,
-            "skipped_rows": len(rows) - inserted}
+            "skipped_rows": len(rows) - inserted, "kind": "assessment"}
 
 
 @router.post("/imports/{batch_id}/discard")
@@ -617,7 +630,7 @@ def reset_data(db: DB, body: ResetBody, x_admin_token: str | None = Header(defau
         raise HTTPException(403, "Неверный или отсутствующий токен администратора.")
     if body.confirm != "УДАЛИТЬ":
         raise HTTPException(422, "Для удаления всех данных введите слово УДАЛИТЬ.")
-    for model in (m.AuditEvent, m.Intervention, m.CurriculumAllocation, m.RecommendationRun, m.GeneratedReport, m.AssessmentResult,
+    for model in (m.DatasetRow, m.Dataset, m.AuditEvent, m.Intervention, m.CurriculumAllocation, m.RecommendationRun, m.GeneratedReport, m.AssessmentResult,
                   m.ClassTopicHours, m.TopicPrerequisite, m.Student, m.ClassSubject, m.Assessment, m.Topic,
                   m.Textbook, m.SchoolClass, m.Subject, m.School, m.ImportBatch):
         db.execute(delete(model))

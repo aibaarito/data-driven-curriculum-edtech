@@ -1,12 +1,13 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { AlertTriangle, CheckCircle2, Download, FileSpreadsheet, Loader2, UploadCloud, XCircle } from "lucide-react";
+import { Download, FileSpreadsheet, Loader2, UploadCloud, XCircle } from "lucide-react";
 import Link from "next/link";
-import { useMemo, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { toast } from "sonner";
 
+import { CapabilityList } from "@/components/capabilities";
 import { useMeta } from "@/components/meta-provider";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -17,30 +18,35 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { useApi } from "@/hooks/use-api";
 import { api, ApiError, uploadFile } from "@/lib/api";
 import { dateTime, int } from "@/lib/format";
-import { columnLabel, groupByRow, issueTitle, summarizeErrors } from "@/lib/import-issues";
 import {
-  initialMapping,
-  type Mapping,
+  buildPayload,
+  coveredByColumns,
+  fieldsForLayout,
+  initialPrep,
+  type PrepState,
+  prepProblems,
+  prepReady,
   remapAfterHeaderChange,
-  requiredResolved,
   sharedChoices,
-  validatePayload,
 } from "@/lib/import-wizard";
 import { MAX_UPLOAD_MB, uploadSchema, type UploadForm } from "@/lib/schemas";
 import type {
+  Capability,
   ConfigIssue,
   FieldChoice,
   GuidedValidation,
   ImportBatch,
   ImportSource,
+  Layout,
+  RegionSelection,
   SheetInspection,
-  ValidationIssue,
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 import { HeaderStep, MappingStep, SheetStep } from "./guided-steps";
+import { AggregateStep, CsvOptions, FlaggedRows, GeneralStep, LayoutStep, RegionOptions, RulesStep, WideResultsStep } from "./prepare-steps";
+import { ReviewPanel, SuccessPanel } from "./review-panel";
 
-const PAGE = 20;
 const SCHEMA_DOC: [string, string, boolean][] = [
   ["student_id", "Анонимный идентификатор ученика (без ФИО)", true],
   ["grade", "Параллель, 1–12", true],
@@ -49,18 +55,29 @@ const SCHEMA_DOC: [string, string, boolean][] = [
   ["topic_id / topic_name", "Код и название темы", true],
   ["assessment_id", "Код оценивания", true],
   ["assessment_type", "pre (входная), post (итоговая), current (текущая)", true],
-  ["assessment_date", "Дата ГГГГ-ММ-ДД или ДД.ММ.ГГГГ", true],
-  ["score / max_score", "Набранный и максимальный балл (max > 0, 0 ≤ score ≤ max)", true],
-  ["textbook_id", "Код учебника (столбец обязателен, значение может быть пустым)", true],
+  ["assessment_date", "Дата; формат задаётся в правилах разбора", true],
+  ["score / max_score", "Результат и максимальный балл (или проценты, верно/неверно, шкала — по правилу)", true],
+  ["textbook_id", "Код учебника (можно явно отметить, что его нет)", true],
   ["item_id", "Код задания — для данных на уровне заданий", false],
   ["comparison_group", "Связывает pre и post для расчёта прироста", false],
-  ["teaching_hours", "Часы на тему в классе", false],
-  ["topic_min_hours / topic_max_hours / topic_priority / topic_prerequisites / topic_order", "Ограничения для оптимизатора", false],
+  ["teaching_hours", "Часы на тему в классе (для оптимизатора)", false],
+  ["topic_min_hours / topic_max_hours / topic_priority / topic_prerequisites / topic_order", "Ограничения для оптимизатора и карты программы", false],
   ["school / textbook_name", "Код школы и название учебника", false],
 ];
 
 type Phase = "idle" | "uploading" | "inspecting" | "ready" | "validating" | "committing" | "done";
-const STEPS = ["Файл", "Лист", "Заголовок", "Сопоставление", "Проверка", "Импорт"] as const;
+const STEPS = ["Файл", "Данные", "Структура", "Сопоставление", "Проверка", "Импорт", "Анализ"] as const;
+type CsvOpts = { encoding: string; delimiter: string };
+type CommitResult = { inserted_rows: number; skipped_rows: number; kind?: string; dataset_id?: number };
+
+function regionFrom(ins: SheetInspection | null): RegionSelection | null {
+  if (!ins || ins.header_row === null) return null;
+  const s = ins.selection;
+  return {
+    header_row: ins.header_row, header_rows: (s?.header_rows ?? 1) as 1 | 2, first_col: s?.first_col ?? 0,
+    last_col: s?.last_col ?? null, last_row: s?.last_row ?? null, exclude: s?.exclude ?? [],
+  };
+}
 
 export function ImportView() {
   const meta = useMeta();
@@ -69,14 +86,16 @@ export function ImportView() {
   const [progress, setProgress] = useState(0);
   const [source, setSource] = useState<ImportSource | null>(null);
   const [sheet, setSheet] = useState<string | null>(null);
+  const [csv, setCsv] = useState<CsvOpts>({ encoding: "auto", delimiter: "auto" });
   const [inspection, setInspection] = useState<SheetInspection | null>(null);
-  const [mapping, setMapping] = useState<Mapping>({});
-  const [confirmShared, setConfirmShared] = useState(false);
+  const [region, setRegion] = useState<RegionSelection | null>(null);
+  const [prep, setPrep] = useState<PrepState>(initialPrep(null));
   const [report, setReport] = useState<GuidedValidation | null>(null);
   const [configIssues, setConfigIssues] = useState<ConfigIssue[]>([]);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<ApiError | null>(null);
-  const [result, setResult] = useState<{ inserted_rows: number; skipped_rows: number } | null>(null);
+  const [result, setResult] = useState<CommitResult | null>(null);
+  const [afterCaps, setAfterCaps] = useState<Capability[] | null>(null);
   const [page, setPage] = useState(0);
   const [prepOpen, setPrepOpen] = useState(true);
   const requestSeq = useRef(0);
@@ -86,23 +105,25 @@ export function ImportView() {
   const selectedFile = useWatch({ control: form.control, name: "file" });
 
   const busy = phase === "uploading" || phase === "inspecting" || phase === "validating" || phase === "committing";
-  const shared = source ? sharedChoices(source.fields, mapping) : [];
-  const resolved = source ? requiredResolved(source.fields, mapping) : false;
-  const blockingNotice = inspection?.notices.some((n) => n.severity === "error") ?? false;
-  const canValidate = !!source && !!sheet && !!inspection?.header_row && resolved && (shared.length === 0 || confirmShared) && !busy;
+  const fields = source?.fields ?? [];
+  const shared = (prep.layout === "long" || prep.layout === "wide") ? sharedChoices(fields, prep.mapping) : [];
+  const problems = prepProblems(fields, prep, inspection, configIssues);
+  const ready = !!source && !!sheet && !!region && !!inspection && !inspection.problem && prepReady(fields, prep, inspection);
+  const canValidate = ready && !busy;
 
   function reset() {
     setSource(null);
     setSheet(null);
     setInspection(null);
-    setMapping({});
-    setConfirmShared(false);
+    setRegion(null);
+    setPrep(initialPrep(null));
     setReport(null);
     setConfigIssues([]);
+    setCsv({ encoding: "auto", delimiter: "auto" });
     setPage(0);
   }
 
-  /** Any change of sheet, header row, mapping or shared values makes an earlier validation unusable. */
+  /** Any change of data selection, structure, mapping or rules makes an earlier validation unusable. */
   function invalidate(reason: string) {
     setConfigIssues([]);
     if (report) setNotice(`Предпросмотр устарел после изменения: ${reason}. Проверьте данные снова.`);
@@ -113,33 +134,30 @@ export function ImportView() {
   function handleLifecycleError(e: unknown, fallback: string) {
     const err = e instanceof ApiError ? e : new ApiError(fallback, 0);
     if (err.status === 410 || err.status === 404 || err.status === 403) {
-      // The preview is gone (expired, discarded or not ours): start over with a clear explanation.
       reset();
       setPhase("idle");
     }
     setError(err);
   }
 
-  async function runValidate(src: ImportSource, sheetName: string, headerRow: number, m: Mapping, confirm: boolean) {
+  async function runValidate(src: ImportSource, sheetName: string, r: RegionSelection, p: PrepState, c: CsvOpts) {
     setPhase("validating");
     setError(null);
     setNotice(null);
     setConfigIssues([]);
     try {
-      const r = await api.post<GuidedValidation>(`/api/imports/${src.batch_id}/validate`,
-        validatePayload(src.session_key, sheetName, headerRow, m, confirm));
-      setReport(r);
+      const v = await api.post<GuidedValidation>(`/api/imports/${src.batch_id}/validate`, buildPayload(src.session_key, sheetName, c, r, p));
+      setReport(v);
       setPage(0);
       setPhase("ready");
     } catch (e) {
-      if (e instanceof ApiError && e.code === "INVALID_CONFIGURATION") {
+      setPhase("ready");
+      if (e instanceof ApiError && e.issues.length && (e.code === "INVALID_CONFIGURATION" || e.status === 413)) {
         setConfigIssues(e.issues);
         setPrepOpen(true);
-        setNotice("Проверка не выполнена: сопоставление не завершено. Исправьте отмеченные поля.");
-        setPhase("ready");
+        setNotice(e.status === 413 ? e.message : "Проверка не выполнена: настройки импорта не завершены. Исправьте отмеченные поля.");
         return;
       }
-      setPhase("ready");
       handleLifecycleError(e, "Ошибка проверки.");
     }
   }
@@ -150,19 +168,23 @@ export function ImportView() {
     setError(null);
     setNotice(null);
     setResult(null);
+    setAfterCaps(null);
     setPhase("uploading");
     setProgress(0);
     try {
       const src = await uploadFile<ImportSource>("/api/imports/sources", file, setProgress);
-      const m = initialMapping(src.inspection);
+      const p = initialPrep(src.inspection);
+      const r = regionFrom(src.inspection);
+      const c = src.csv_info ? { encoding: "auto", delimiter: "auto" } : csv;
       setSource(src);
       setSheet(src.sheet_suggestion.name);
       setInspection(src.inspection);
-      setMapping(m);
+      setRegion(r);
+      setPrep(p);
       setPrepOpen(!src.auto_ready);
-      if (src.auto_ready && src.inspection?.header_row && src.sheet_suggestion.name) {
+      if (src.auto_ready && r && src.sheet_suggestion.name) {
         // Standard template: everything is unambiguous, so validation starts right away (nothing is saved).
-        await runValidate(src, src.sheet_suggestion.name, src.inspection.header_row, m, false);
+        await runValidate(src, src.sheet_suggestion.name, r, p, c);
       } else {
         setPhase("ready");
       }
@@ -172,17 +194,17 @@ export function ImportView() {
     }
   });
 
-  async function inspect(sheetName: string, headerRow: number | null): Promise<SheetInspection | null> {
+  async function inspect(sheetName: string, r: Partial<RegionSelection> | null, c: CsvOpts): Promise<SheetInspection | null> {
     if (!source) return null;
     const seq = ++requestSeq.current;
     setPhase("inspecting");
     setError(null);
     try {
-      const r = await api.post<{ inspection: SheetInspection }>(`/api/imports/${source.batch_id}/inspect`,
-        { session_key: source.session_key, sheet: sheetName, header_row: headerRow });
-      if (seq !== requestSeq.current) return null; // a newer selection superseded this response
+      const res = await api.post<{ inspection: SheetInspection }>(`/api/imports/${source.batch_id}/inspect`,
+        { session_key: source.session_key, sheet: sheetName, csv: c, ...(r ?? {}) });
+      if (seq !== requestSeq.current) return null;
       setPhase("ready");
-      return r.inspection;
+      return res.inspection;
     } catch (e) {
       if (seq === requestSeq.current) {
         setPhase("ready");
@@ -196,30 +218,72 @@ export function ImportView() {
     if (name === sheet) return;
     setSheet(name);
     setInspection(null);
-    setMapping({});
-    setConfirmShared(false);
+    setRegion(null);
     invalidate("выбран другой лист");
-    const ins = await inspect(name, null);
+    const ins = await inspect(name, null, csv);
     if (ins) {
       setInspection(ins);
-      setMapping(initialMapping(ins));
+      setRegion(regionFrom(ins));
+      setPrep(initialPrep(ins));
     }
   }
 
-  async function chooseHeader(row: number) {
-    if (!sheet || !inspection || row === inspection.header_row) return;
-    invalidate("изменена строка заголовка");
-    const before = inspection;
-    const ins = await inspect(sheet, row);
+  async function changeCsv(next: CsvOpts) {
+    if (!sheet) return;
+    setCsv(next);
+    invalidate("изменены параметры CSV");
+    const ins = await inspect(sheet, null, next);
     if (ins) {
       setInspection(ins);
-      setMapping((m) => remapAfterHeaderChange(m, before, ins));
+      setRegion(regionFrom(ins));
+      setPrep(initialPrep(ins));
     }
+  }
+
+  /** Header row, two-row header or range changed: re-read columns; keep choices whose column header is unchanged. */
+  async function changeRegion(patch: Partial<RegionSelection>) {
+    if (!sheet || !region || !inspection) return;
+    const next = { ...region, ...patch };
+    if (patch.exclude && Object.keys(patch).length === 1) {
+      setRegion(next);
+      invalidate("изменён выбор исключаемых строк");
+      return;
+    }
+    invalidate(patch.header_row ? "изменена строка заголовка" : "изменён диапазон или заголовок");
+    const before = inspection;
+    const ins = await inspect(sheet, next, csv);
+    if (!ins) return;
+    setInspection(ins);
+    setRegion({ ...next, exclude: next.exclude.filter((k) => (ins.flag_counts ?? {})[k]) });
+    const headerOf = (i: SheetInspection, id: string) => i.columns.find((c) => c.id === id)?.header;
+    setPrep((p) => ({
+      ...p,
+      mapping: remapAfterHeaderChange(p.mapping, before, ins),
+      resultColumns: p.resultColumns.filter((rc) => headerOf(before, rc.column) === headerOf(ins, rc.column) && headerOf(ins, rc.column) !== undefined),
+      roles: Object.fromEntries(Object.entries(p.roles).filter(([c]) => headerOf(before, c) === headerOf(ins, c) && headerOf(ins, c) !== undefined)),
+      types: { ...(ins.type_suggestion ?? {}), ...Object.fromEntries(Object.entries(p.types).filter(([c]) => headerOf(before, c) === headerOf(ins, c))) },
+    }));
+  }
+
+  function updatePrep(patch: Partial<PrepState>, reason: string) {
+    setPrep((p) => ({ ...p, ...patch }));
+    invalidate(reason);
+  }
+
+  function changeLayout(layout: Layout) {
+    if (layout === prep.layout) return;
+    const base = initialPrep(inspection);
+    const mapping = { ...prep.mapping };
+    if (layout === "wide") for (const f of ["topic_id", "topic_name", "item_id", "score", "max_score"]) delete mapping[f];
+    updatePrep({
+      layout, mapping: layout === "long" ? { ...base.mapping, ...mapping } : mapping,
+      resultColumns: prep.resultColumns.length ? prep.resultColumns : base.resultColumns,
+    }, "изменена структура таблицы");
   }
 
   function changeField(field: string, choice: FieldChoice | undefined) {
-    setMapping((m) => ({ ...m, [field]: choice }));
-    if (choice?.source === "value" || mapping[field]?.source === "value") setConfirmShared(false);
+    const wasShared = prep.mapping[field]?.source === "value";
+    setPrep((p) => ({ ...p, mapping: { ...p.mapping, [field]: choice }, confirmShared: choice?.source === "value" || wasShared ? false : p.confirmShared }));
     invalidate("изменено сопоставление");
   }
 
@@ -228,13 +292,19 @@ export function ImportView() {
     setPhase("committing");
     setError(null);
     try {
-      const r = await api.post<{ inserted_rows: number; skipped_rows: number }>(`/api/imports/${source.batch_id}/commit`,
-        { session_key: source.session_key, config_hash: report.config_hash });
+      const r = await api.post<CommitResult>(`/api/imports/${source.batch_id}/commit`, { session_key: source.session_key, config_hash: report.config_hash });
       setResult(r);
       setPhase("done");
-      toast.success(`Импортировано записей: ${int(r.inserted_rows)}`);
+      toast.success(r.kind === "assessment" || !r.kind ? `Импортировано записей: ${int(r.inserted_rows)}` : `Сохранён набор данных: ${int(r.inserted_rows)} строк`);
       meta.reload();
       history.reload();
+      if (r.kind !== "general" && r.kind !== "aggregate") {
+        try {
+          setAfterCaps((await api.get<{ capabilities: Capability[] }>("/api/analytics/capabilities")).capabilities);
+        } catch {
+          setAfterCaps(null); /* the import itself succeeded; capabilities are informational */
+        }
+      }
     } catch (e) {
       setPhase("ready");
       if (e instanceof ApiError && e.code === "STALE_PREVIEW") {
@@ -265,8 +335,15 @@ export function ImportView() {
     history.reload();
   }
 
-  const stepIndex = phase === "done" ? 5 : report ? 4 : inspection?.header_row ? 3 : sheet ? 2 : source ? 1 : 0;
-  const showSheetStep = !!source && (source.kind === "xlsx" && (source.sheets.length > 1 || !sheet));
+  const stepIndex = phase === "done" ? 6 : report ? 4 : inspection?.header_row ? 3 : sheet ? 1 : source ? 1 : 0;
+  const showSheetStep = !!source && source.kind === "xlsx" && (source.sheets.length > 1 || !sheet);
+  const usedIdentity = new Set(Object.values(prep.mapping).flatMap((c) => (c?.source === "column" ? [c.column] : [])));
+  const covered = coveredByColumns(prep);
+  const mappingFields = fieldsForLayout(fields, prep.layout, prep.rules).map((f) => (prep.layout === "wide" && covered.has(f.field) ? { ...f, required: false } : f));
+  // Flagged rows are decided in «Строки, требующие решения»; only structural hints are repeated here.
+  const structureNotices = (inspection?.notices ?? []).filter((n) => n.severity !== "error" && !["TOTAL_ROWS", "NOTE_ROWS", "REPEATED_HEADER"].includes(n.code));
+  const scoreColumns = prep.layout === "wide" ? prep.resultColumns.map((r) => r.column)
+    : prep.mapping.score?.source === "column" ? [prep.mapping.score.column] : [];
 
   return (
     <div className="space-y-6">
@@ -285,44 +362,27 @@ export function ImportView() {
           <CardHeader>
             <CardTitle>1. Загрузка файла</CardTitle>
             <CardDescription>
-              CSV (UTF-8 или Windows-1251, разделитель «,» или «;») либо Excel .xlsx, до {MAX_UPLOAD_MB} МБ. Дальше вы выберете
-              лист и строку заголовка и сопоставите столбцы. В базу ничего не записывается до подтверждения.
+              CSV (UTF-8 или Windows-1251; запятая, точка с запятой или табуляция) либо Excel .xlsx, до {MAX_UPLOAD_MB} МБ. Дальше вы выберете
+              данные и структуру таблицы и сопоставите столбцы. В базу ничего не записывается до подтверждения; формулы и макросы не выполняются.
             </CardDescription>
           </CardHeader>
           <CardContent>
             <form onSubmit={onSubmit} className="space-y-4" noValidate>
-              <label
-                htmlFor="file"
-                className={cn(
-                  "flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed px-6 py-10 text-center transition-colors hover:border-primary/50 hover:bg-accent/40 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring",
-                  fileError && "border-danger/50",
-                )}
-              >
+              <label htmlFor="file" className={cn(
+                "flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed px-6 py-10 text-center transition-colors hover:border-primary/50 hover:bg-accent/40 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring",
+                fileError && "border-danger/50")}>
                 <UploadCloud className="mb-2 size-8 text-primary" aria-hidden />
                 <span className="font-medium break-all">{selectedFile?.name ?? "Выберите файл .csv или .xlsx"}</span>
                 <span id="file-hint" className="mt-1 text-xs text-muted-foreground">Нажмите, чтобы выбрать файл</span>
-                <input
-                  id="file"
-                  type="file"
-                  accept=".csv,.xlsx"
-                  className="sr-only"
-                  data-testid="file-input"
-                  disabled={busy}
-                  aria-invalid={!!fileError}
-                  aria-describedby={fileError ? "file-error" : "file-hint"}
-                  onChange={(e) => {
-                    const f = e.target.files?.[0];
-                    if (f) form.setValue("file", f, { shouldValidate: true });
-                  }}
-                />
+                <input id="file" type="file" accept=".csv,.xlsx" className="sr-only" data-testid="file-input" disabled={busy}
+                  aria-invalid={!!fileError} aria-describedby={fileError ? "file-error" : "file-hint"}
+                  onChange={(e) => { const f = e.target.files?.[0]; if (f) form.setValue("file", f, { shouldValidate: true }); }} />
               </label>
               {fileError && <p id="file-error" className="text-sm text-danger" role="alert">{fileError}</p>}
               {phase === "uploading" && (
                 <div className="space-y-1" aria-live="polite">
                   <Progress value={progress} aria-label="Загрузка файла" />
-                  <p className="text-xs text-muted-foreground">
-                    {progress < 100 ? `Загрузка: ${progress}%` : "Чтение листов и поиск заголовка…"}
-                  </p>
+                  <p className="text-xs text-muted-foreground">{progress < 100 ? `Загрузка: ${progress}%` : "Чтение листов и поиск заголовка…"}</p>
                 </div>
               )}
               <Button type="submit" disabled={busy || !selectedFile} data-testid="validate-button">
@@ -343,25 +403,22 @@ export function ImportView() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Шаблоны</CardTitle>
-            <CardDescription>Начните с шаблона, примера книги Excel или синтетического демонстрационного набора.</CardDescription>
+            <CardTitle>Шаблоны и примеры</CardTitle>
+            <CardDescription>Все примеры полностью синтетические и не описывают реальную школу.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
             <Button asChild variant="outline" className="w-full justify-start">
               <a href="/api/imports/template.csv" download><Download className="size-4" /> Шаблон CSV</a>
             </Button>
             <Button asChild variant="outline" className="h-auto w-full justify-start py-1.5 text-left whitespace-normal">
-              <a href="/api/imports/example-workbook.xlsx" download data-testid="example-download">
-                <Download className="size-4 shrink-0" /> Пример Excel (русские заголовки)
-              </a>
+              <a href="/api/imports/example-workbook.xlsx" download data-testid="example-download"><Download className="size-4 shrink-0" /> Пример Excel (русские заголовки)</a>
             </Button>
             <Button asChild variant="outline" className="w-full justify-start">
-              <a href="/api/imports/demo-dataset.csv" download data-testid="demo-download">
-                <Download className="size-4" /> Демо-набор (синтетический)
-              </a>
+              <a href="/api/imports/demo-dataset.csv" download data-testid="demo-download"><Download className="size-4" /> Демо-набор (синтетический)</a>
             </Button>
             <p className="text-xs text-muted-foreground">
-              Все примеры полностью сгенерированы и помечены как синтетические. Они не описывают реальную школу.
+              Также поддерживаются журналы (ученик × столбцы тем), сводные таблицы по классам и темам и любые другие таблицы — для общего просмотра в разделе{" "}
+              <Link href="/datasets" className="underline underline-offset-2">«Наборы данных»</Link>.
             </p>
           </CardContent>
         </Card>
@@ -380,55 +437,80 @@ export function ImportView() {
             </CardTitle>
             <CardDescription className="break-words">
               {source.filename}{sheet && source.kind === "xlsx" ? ` · лист «${sheet}»` : ""}
-              {inspection?.header_row ? ` · заголовок в строке ${inspection.header_row}` : ""}. Предпросмотр действует до{" "}
-              {dateTime(source.expires_at)}.
+              {inspection?.header_row ? ` · заголовок в строке ${inspection.header_row}` : ""}. Предпросмотр действует до {dateTime(source.expires_at)}.
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <details open={prepOpen} onToggle={(e) => setPrepOpen((e.target as HTMLDetailsElement).open)} className="space-y-5">
+            <details open={prepOpen} onToggle={(e) => setPrepOpen((e.target as HTMLDetailsElement).open)}>
               <summary className="mb-3 cursor-pointer rounded-md text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring" data-testid="prepare-toggle">
-                {prepOpen ? "Скрыть настройки листа, заголовка и столбцов" : "Показать и изменить лист, заголовок и сопоставление столбцов"}
+                {prepOpen ? "Скрыть настройки данных, структуры и столбцов" : "Показать и изменить данные, структуру и сопоставление"}
               </summary>
-              <div className="space-y-6">
-                {showSheetStep && (
-                  <SheetStep sheets={source.sheets} selected={sheet} suggestion={source.sheet_suggestion} disabled={busy} onSelect={chooseSheet} />
-                )}
-                {phase === "inspecting" && !inspection && (
-                  <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" aria-hidden /> Чтение листа…</p>
-                )}
-                {inspection?.problem && (
-                  <Alert variant="destructive"><XCircle className="size-4" /><AlertTitle>Лист не может быть импортирован</AlertTitle><AlertDescription>{inspection.problem}</AlertDescription></Alert>
-                )}
-                {inspection && !inspection.problem && (
+              <div className="space-y-8">
+                <section aria-labelledby="data-title" className="space-y-4">
+                  <h3 id="data-title" className="text-base font-semibold">2. Данные</h3>
+                  {showSheetStep && <SheetStep sheets={source.sheets} selected={sheet} suggestion={source.sheet_suggestion} disabled={busy} onSelect={chooseSheet} />}
+                  {source.kind === "csv" && source.csv_info && <CsvOptions info={source.csv_info} value={csv} disabled={busy} onChange={changeCsv} />}
+                  {phase === "inspecting" && !inspection && (
+                    <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" aria-hidden /> Чтение листа…</p>
+                  )}
+                  {inspection?.problem && (
+                    <Alert variant="destructive"><XCircle className="size-4" /><AlertTitle>Лист не может быть импортирован</AlertTitle><AlertDescription>{inspection.problem}</AlertDescription></Alert>
+                  )}
+                  {inspection && !inspection.problem && (
+                    <>
+                      <HeaderStep inspection={inspection} disabled={busy} onChange={(row) => changeRegion({ header_row: row, header_rows: 1 })} />
+                      {region && <RegionOptions key={`${sheet}-${region.header_row}`} inspection={inspection} region={region} disabled={busy} onChange={changeRegion} />}
+                      {region && <FlaggedRows inspection={inspection} region={region} catalog={source.catalog} disabled={busy} onChange={(exclude) => changeRegion({ exclude })} />}
+                      {inspection.notices.filter((n) => n.severity === "error").map((n) => (
+                        <Alert key={n.code} variant="destructive"><XCircle className="size-4" /><AlertTitle>Нет данных для импорта</AlertTitle><AlertDescription>{n.message}</AlertDescription></Alert>
+                      ))}
+                    </>
+                  )}
+                </section>
+
+                {inspection && !inspection.problem && region && (
                   <>
-                    <section aria-labelledby="hdr-title" className="space-y-2">
-                      <h3 id="hdr-title" className="text-sm font-semibold">Строка заголовка и предпросмотр</h3>
-                      <HeaderStep inspection={inspection} disabled={busy} onChange={chooseHeader} />
+                    <section aria-labelledby="structure-title" className="space-y-3">
+                      <h3 id="structure-title" className="text-base font-semibold">3. Структура</h3>
+                      {structureNotices.length > 0 && (
+                        <ul className="space-y-1 text-sm" data-testid="layout-notices">
+                          {structureNotices.map((n) => <li key={n.code} className="rounded-md border border-warning/50 bg-warning/10 p-2">{n.message}</li>)}
+                        </ul>
+                      )}
+                      <LayoutStep value={prep.layout} suggestion={inspection.layout_suggestion} disabled={busy} onChange={changeLayout} />
                     </section>
-                    {inspection.notices.length > 0 && (
-                      <div className="space-y-2" data-testid="layout-notices">
-                        {inspection.notices.map((n) => (
-                          <Alert key={n.code} variant={n.severity === "error" ? "destructive" : "default"} className={n.severity === "warning" ? "border-warning/50 bg-warning/10" : undefined}>
-                            <AlertTriangle className="size-4" aria-hidden />
-                            <AlertTitle>{n.severity === "error" ? "Структура таблицы не поддерживается" : "Проверьте структуру таблицы"}</AlertTitle>
-                            <AlertDescription>
-                              <p>{n.message}</p>
-                              <p>Ожидается: одна строка — результат одного ученика по одной теме (или заданию) одного оценивания. См. «Шаблон CSV» и «Пример Excel».</p>
-                            </AlertDescription>
-                          </Alert>
-                        ))}
-                      </div>
-                    )}
-                    {inspection.header_row !== null && (
-                      <section aria-labelledby="map-title" className="space-y-2">
-                        <h3 id="map-title" className="text-sm font-semibold">Сопоставление столбцов с полями приложения</h3>
-                        <p className="text-xs text-muted-foreground">
-                          Предложения основаны только на названиях столбцов и не применяются, если подходит несколько вариантов.
-                          Проверьте примеры значений: «Оценка» может быть отметкой, а не баллом; ФИО не является идентификатором ученика.
-                        </p>
-                        <MappingStep fields={source.fields} inspection={inspection} mapping={mapping} issues={configIssues} disabled={busy} onChange={changeField} />
-                      </section>
-                    )}
+
+                    <section aria-labelledby="map-title" className="space-y-3">
+                      <h3 id="map-title" className="text-base font-semibold">4. Сопоставление{prep.layout === "long" || prep.layout === "wide" ? " и правила" : ""}</h3>
+                      {problems.general.length > 0 && (
+                        <ul className="space-y-1 rounded-lg border border-danger/30 bg-danger/5 p-3 text-sm" data-testid="prep-problems" role="alert">
+                          {problems.general.map((m, i) => <li key={i}>{m}</li>)}
+                        </ul>
+                      )}
+                      {(prep.layout === "long" || prep.layout === "wide") && (
+                        <MappingStep fields={mappingFields} inspection={inspection} mapping={prep.mapping} issues={configIssues} disabled={busy}
+                          onChange={changeField} problemsOverride={problems.fields}
+                          title={prep.layout === "wide" ? "Поля строки ученика. Тема, задание, результат и максимум задаются для столбцов результатов ниже." :
+                            "Предложения основаны на названиях столбцов и примерах значений и не применяются, если подходит несколько вариантов. «Оценка» может быть отметкой, а не баллом; ФИО не является идентификатором ученика."} />
+                      )}
+                      {prep.layout === "wide" && (
+                        <WideResultsStep inspection={inspection} results={prep.resultColumns} usedIdentity={usedIdentity} scoreMode={prep.rules.score_mode}
+                          problems={problems.columns} disabled={busy} onChange={(resultColumns) => updatePrep({ resultColumns }, "изменены столбцы результатов")} />
+                      )}
+                      {prep.layout === "aggregate" && (
+                        <AggregateStep inspection={inspection} catalog={source.catalog} roles={prep.roles} metric={prep.metric} name={prep.datasetName} disabled={busy}
+                          onRoles={(roles) => updatePrep({ roles }, "изменены роли столбцов")} onMetric={(metric) => updatePrep({ metric }, "изменён показатель")}
+                          onName={(datasetName) => updatePrep({ datasetName }, "изменено название")} />
+                      )}
+                      {prep.layout === "general" && (
+                        <GeneralStep inspection={inspection} catalog={source.catalog} types={prep.types} name={prep.datasetName} disabled={busy}
+                          onTypes={(types) => updatePrep({ types }, "изменены типы столбцов")} onName={(datasetName) => updatePrep({ datasetName }, "изменено название")} />
+                      )}
+                      {prep.layout !== "general" && (
+                        <RulesStep rules={prep.rules} inspection={inspection} scoreColumns={scoreColumns} layout={prep.layout} disabled={busy}
+                          onChange={(rules) => updatePrep({ rules }, "изменены правила чтения результатов")} />
+                      )}
+                    </section>
                   </>
                 )}
               </div>
@@ -437,70 +519,72 @@ export function ImportView() {
             {shared.length > 0 && (
               <div className="mt-4 rounded-lg border border-primary/30 bg-primary/5 p-3 text-sm" data-testid="shared-confirm">
                 <p className="font-medium">Значения, заданные вручную для всего файла</p>
-                <ul className="my-1 list-disc pl-5">
-                  {shared.map((s) => <li key={s.field}>{s.label}: <strong>{s.value.trim() || "—"}</strong></li>)}
-                </ul>
+                <ul className="my-1 list-disc pl-5">{shared.map((s) => <li key={s.field}>{s.label}: <strong>{s.value.trim() || "—"}</strong></li>)}</ul>
                 <label className="flex items-start gap-2">
-                  <input type="checkbox" className="mt-1" checked={confirmShared} disabled={busy}
-                    onChange={(e) => { setConfirmShared(e.target.checked); invalidate("изменено подтверждение значений"); }}
-                    data-testid="confirm-shared" />
-                  <span>Подтверждаю: эти значения верны для всех строк с данными в выбранном листе.</span>
+                  <input type="checkbox" className="mt-1" checked={prep.confirmShared} disabled={busy} data-testid="confirm-shared"
+                    onChange={(e) => updatePrep({ confirmShared: e.target.checked }, "изменено подтверждение значений")} />
+                  <span>Подтверждаю: эти значения верны для всех строк с данными в выбранном диапазоне.</span>
                 </label>
               </div>
             )}
 
             <div className="mt-4 flex flex-wrap items-center gap-2 border-t pt-4">
-              <Button onClick={() => source && sheet && inspection?.header_row && runValidate(source, sheet, inspection.header_row, mapping, confirmShared)}
-                disabled={!canValidate} data-testid="run-validation" aria-describedby="validate-hint">
+              <Button onClick={() => source && sheet && region && runValidate(source, sheet, region, prep, csv)} disabled={!canValidate}
+                data-testid="run-validation" aria-describedby="validate-hint">
                 {phase === "validating" && <Loader2 className="size-4 animate-spin" aria-hidden />}
                 {report ? "Проверить снова" : "Проверить данные"}
               </Button>
               <Button variant="outline" onClick={cancel} disabled={phase === "committing"} data-testid="cancel-import">Отменить</Button>
               <span id="validate-hint" className="text-xs text-muted-foreground">
-                {!sheet ? "Выберите лист." : !inspection?.header_row ? "Выберите строку заголовка."
-                  : !resolved ? "Сопоставьте все обязательные поля." : shared.length > 0 && !confirmShared
-                    ? "Подтвердите значения, заданные вручную." : blockingNotice ? "Структура таблицы требует исправления; проверка покажет затронутые строки." : "Проверка не изменяет данные."}
+                {!sheet ? "Выберите лист." : !region ? "Выберите строку заголовка." : !ready
+                  ? (shared.length > 0 && !prep.confirmShared && !problems.general.length ? "Подтвердите значения, заданные вручную." : "Завершите сопоставление: проблемы отмечены выше.")
+                  : "Проверка не изменяет данные."}
               </span>
             </div>
-            {notice && !report && (
-              <p className="mt-3 rounded-md border border-warning/50 bg-warning/10 p-2 text-sm" data-testid="stale-notice">{notice}</p>
-            )}
+            {notice && !report && <p className="mt-3 rounded-md border border-warning/50 bg-warning/10 p-2 text-sm" data-testid="stale-notice">{notice}</p>}
           </CardContent>
         </Card>
       )}
 
       {report && source && (
-        <ValidationPanel report={report} source={source} page={page} setPage={setPage} phase={phase} onCommit={commit} onDiscard={cancel} />
+        <ReviewPanel report={report} source={source} page={page} setPage={setPage} committing={phase === "committing"} done={phase === "done"}
+          onCommit={commit} onDiscard={cancel} />
       )}
 
       {phase === "done" && result && (
-        <Alert className="border-success/40 bg-success/5" data-testid="import-success">
-          <CheckCircle2 className="size-4 text-success" />
-          <AlertTitle>Данные импортированы</AlertTitle>
-          <AlertDescription>
-            <p>Добавлено записей: {int(result.inserted_rows)}{result.skipped_rows ? `, пропущено уже загруженных: ${int(result.skipped_rows)}` : ""}.</p>
-            <div className="mt-2 flex flex-wrap gap-2">
-              <Button asChild size="sm"><Link href="/">Открыть обзор</Link></Button>
-              <Button asChild size="sm" variant="outline"><Link href="/topics">Анализ тем</Link></Button>
-            </div>
-          </AlertDescription>
-        </Alert>
+        <SuccessPanel>
+          {result.dataset_id ? (
+            <>
+              <p>Сохранён набор данных ({result.kind === "aggregate" ? "сводная таблица" : "общая таблица"}): {int(result.inserted_rows)} строк. Он хранится отдельно от результатов оценивания.</p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                <Button asChild size="sm" data-testid="open-dataset"><Link href={`/datasets?id=${result.dataset_id}`}>7. Открыть набор данных</Link></Button>
+              </div>
+            </>
+          ) : (
+            <>
+              <p>Добавлено записей: {int(result.inserted_rows)}{result.skipped_rows ? `, пропущено уже загруженных: ${int(result.skipped_rows)}` : ""}.</p>
+              {afterCaps && <div className="mt-3"><CapabilityList items={afterCaps} title="7. Анализ: что доступно по всем загруженным данным" testId="after-capabilities" /></div>}
+              <div className="mt-2 flex flex-wrap gap-2">
+                <Button asChild size="sm"><Link href="/">Открыть обзор</Link></Button>
+                <Button asChild size="sm" variant="outline"><Link href="/topics">Анализ тем</Link></Button>
+              </div>
+            </>
+          )}
+        </SuccessPanel>
       )}
 
       <div className="grid gap-6 lg:grid-cols-3">
         <Card className="lg:col-span-2">
           <CardHeader>
-            <CardTitle>Схема данных</CardTitle>
+            <CardTitle>Поля результатов оценивания</CardTitle>
             <CardDescription>
-              Одна строка — балл одного ученика по одной теме (или заданию) одного оценивания. Таблицы, где каждая тема записана
-              в отдельном столбце, и печатные отчёты нужно сначала привести к этому виду.
+              Записи: одна строка — результат одного ученика по одной теме (или заданию) одного оценивания. Журналы преобразуются в такие записи;
+              сводные и прочие таблицы сохраняются как наборы данных и не смешиваются с результатами.
             </CardDescription>
           </CardHeader>
           <CardContent>
             <Table>
-              <TableHeader>
-                <TableRow><TableHead>Поле</TableHead><TableHead>Описание</TableHead><TableHead className="w-28">Обязательно</TableHead></TableRow>
-              </TableHeader>
+              <TableHeader><TableRow><TableHead>Поле</TableHead><TableHead>Описание</TableHead><TableHead className="w-28">Обязательно</TableHead></TableRow></TableHeader>
               <TableBody>
                 {SCHEMA_DOC.map(([c, d, req]) => (
                   <TableRow key={c}>
@@ -530,226 +614,10 @@ export function ImportView() {
                   </li>
                 ))}
               </ul>
-            ) : (
-              <p className="text-sm text-muted-foreground">Загрузок пока не было.</p>
-            )}
+            ) : <p className="text-sm text-muted-foreground">Загрузок пока не было.</p>}
           </CardContent>
         </Card>
       </div>
     </div>
-  );
-}
-
-export function ValidationPanel({ report, source, page, setPage, phase, onCommit, onDiscard }: {
-  report: GuidedValidation;
-  source: ImportSource;
-  page: number;
-  setPage: (n: number) => void;
-  phase: Phase;
-  onCommit: () => void;
-  onDiscard: () => void;
-}) {
-  const s = report.summary;
-  const cfg = report.config;
-  const groups = useMemo(() => groupByRow(report.errors), [report]);
-  const warningGroups = useMemo(() => {
-    const m = new Map<string, ValidationIssue[]>();
-    for (const w of report.warnings) m.set(w.code, [...(m.get(w.code) ?? []), w]);
-    return [...m.entries()];
-  }, [report]);
-  const summary = summarizeErrors(report);
-  const pages = Math.max(1, Math.ceil(groups.length / PAGE));
-  const shown = groups.slice(page * PAGE, page * PAGE + PAGE);
-  const cols = useMemo(() => (report.preview[0] ? Object.keys(report.preview[0]).filter((k) => k !== "row") : []), [report]);
-  const done = phase === "done";
-  const where = (row: number) => (source.kind === "xlsx" ? `Лист «${cfg.sheet}», строка ${row}` : `Строка ${row}`);
-  const validated = report.records_validated !== false;
-  const withErrors = report.rows_with_errors ?? 0;
-  const alreadyImported = report.warnings.find((w) => w.code === "ALREADY_IMPORTED");
-
-  return (
-    <Card data-testid="import-preview">
-      <CardHeader>
-        <CardTitle className="flex flex-wrap items-center gap-2">
-          {report.ok ? <CheckCircle2 className="size-5 text-success" aria-hidden /> : <XCircle className="size-5 text-danger" aria-hidden />}
-          5. {report.ok ? "Файл прошёл проверку" : "В файле есть ошибки — данные ещё не импортированы"}
-        </CardTitle>
-        <CardDescription className="break-words">
-          {source.filename}{source.kind === "xlsx" ? `, лист «${cfg.sheet}»` : ""}, заголовок — строка {cfg.header_row}.{" "}
-          {report.ok ? "Ничего не сохранено до подтверждения." : "Данные не исправляются автоматически."}
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-5">
-        <dl className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-3 lg:grid-cols-5" data-testid="record-counts">
-          {([
-            ["Найдено записей", validated ? int(report.total_rows) : "не проверены"],
-            ["Без ошибок", validated ? int(Math.max(0, report.total_rows - withErrors)) : "—"],
-            ["С ошибками", validated ? int(withErrors) : "—"],
-            ["Предупреждений", int(report.warning_count)],
-            ["Будет импортировано", report.ok ? int(report.valid_rows) : "0 — импорт заблокирован"],
-          ] as [string, string][]).map(([k, v]) => (
-            <div key={k} className="rounded-lg bg-muted/60 p-2.5">
-              <dt className="text-xs text-muted-foreground">{k}</dt>
-              <dd className="font-semibold">{v}</dd>
-            </div>
-          ))}
-        </dl>
-        {!validated && (
-          <p className="text-sm text-muted-foreground">Проверка остановилась на структуре таблицы, поэтому отдельные записи ещё не проверялись.</p>
-        )}
-
-        {!report.ok && (
-          <div role="alert" className="rounded-lg border border-danger/30 bg-danger/5 p-3" data-testid="import-error-summary">
-            <p className="font-medium">{summary.headline}</p>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Исправьте указанные строки в исходной таблице (номера строк — как в файле) или сопоставление столбцов и проверьте
-              снова. Значения идентификаторов не показываются, чтобы не раскрывать возможные персональные данные.
-            </p>
-          </div>
-        )}
-
-        {report.ok && (
-          <section aria-labelledby="confirm-title" className="rounded-lg border p-3 text-sm" data-testid="confirm-summary">
-            <h3 id="confirm-title" className="mb-2 font-medium">Что будет импортировано</h3>
-            <dl className="grid gap-x-4 gap-y-1 sm:grid-cols-[max-content_minmax(0,1fr)]">
-              <dt className="text-muted-foreground">Файл</dt><dd className="break-words">{source.filename}</dd>
-              {source.kind === "xlsx" && (<><dt className="text-muted-foreground">Лист</dt><dd className="break-words">{cfg.sheet}{cfg.sheet_hidden ? " (скрытый)" : ""}</dd></>)}
-              <dt className="text-muted-foreground">Строка заголовка</dt><dd>{cfg.header_row}</dd>
-              <dt className="text-muted-foreground">Записей</dt><dd>{int(report.valid_rows)}{alreadyImported ? " (часть уже загружена и будет пропущена)" : ""}</dd>
-              <dt className="text-muted-foreground">Учеников / классов / тем / оцениваний</dt>
-              <dd>{s.students ?? "—"} / {s.classes ?? "—"} / {s.topics ?? "—"} / {s.assessments ?? "—"}</dd>
-              <dt className="text-muted-foreground">Период</dt><dd>{s.date_from} — {s.date_to}</dd>
-              <dt className="text-muted-foreground">Значения для всего файла</dt>
-              <dd>{cfg.shared.length ? cfg.shared.map((x) => `${x.label}: ${x.value}`).join("; ") : "нет"}</dd>
-              {cfg.not_in_file.length > 0 && (<><dt className="text-muted-foreground">Нет в файле</dt><dd>{cfg.not_in_file.map((x) => x.label).join(", ")}</dd></>)}
-              <dt className="text-muted-foreground">Игнорируемые столбцы</dt>
-              <dd className="break-words">{cfg.ignored_columns.length ? cfg.ignored_columns.join(", ") : "нет"}</dd>
-            </dl>
-            <details className="mt-2">
-              <summary className="cursor-pointer text-xs text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring">Сопоставление столбцов</summary>
-              <ul className="mt-1 text-xs">
-                {cfg.mapped.map((x) => <li key={x.field}>{x.label} ← {x.letter} «{x.header}»</li>)}
-              </ul>
-            </details>
-          </section>
-        )}
-
-        {warningGroups.length > 0 && (
-          <Alert className="border-warning/50 bg-warning/10" data-testid="import-warnings">
-            <AlertTriangle className="size-4 text-amber-700" aria-hidden />
-            <AlertTitle>Предупреждения — не блокируют импорт ({int(report.warning_count)})</AlertTitle>
-            <AlertDescription>
-              <ul className="w-full space-y-2">
-                {warningGroups.map(([code, list]) => (
-                  <li key={code}>
-                    <div className="font-medium text-foreground">{issueTitle(code)}{list.length > 1 ? ` · ${list.length}` : ""}</div>
-                    <ul className="list-disc pl-4">
-                      {list.slice(0, 10).map((w, i) => (
-                        <li key={i}>{w.row !== null && `${where(w.row)}: `}{w.message}</li>
-                      ))}
-                      {list.length > 10 && <li>…и ещё {list.length - 10}</li>}
-                    </ul>
-                  </li>
-                ))}
-              </ul>
-            </AlertDescription>
-          </Alert>
-        )}
-
-        {groups.length > 0 && (
-          <div>
-            <h3 className="mb-2 flex items-center gap-2 text-sm font-medium">
-              Что исправить <Badge variant="destructive">блокирует импорт</Badge>
-            </h3>
-            <ul className="space-y-2" data-testid="issue-groups">
-              {shown.map((gr) => (
-                <li key={String(gr.row)} className="rounded-lg border p-3 text-sm">
-                  <div className="mb-1 font-semibold">{gr.row === null ? "Файл целиком" : where(gr.row)}
-                    {gr.issues.length > 1 && <span className="font-normal text-muted-foreground"> · проблем: {gr.issues.length}</span>}
-                  </div>
-                  <ul className="space-y-1.5">
-                    {gr.issues.map((e, i) => {
-                      const col = columnLabel(e.column);
-                      const src = cfg.mapped.find((m) => m.field === e.column);
-                      return (
-                        <li key={i}>
-                          <span className="font-medium">{issueTitle(e.code)}</span>
-                          {col && <> · {col.label}{src ? <> (столбец {src.letter} «{src.header}»)</> : <> <code className="rounded bg-muted px-1 text-xs">{col.header}</code></>}</>}
-                          <div className="text-muted-foreground">{e.message}</div>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                </li>
-              ))}
-            </ul>
-            {pages > 1 && (
-              <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-sm text-muted-foreground">
-                <span>Строки {page * PAGE + 1}–{Math.min(groups.length, (page + 1) * PAGE)} из {groups.length} в списке</span>
-                <span className="flex gap-2">
-                  <Button size="sm" variant="outline" disabled={page === 0} onClick={() => setPage(page - 1)}>Назад</Button>
-                  <Button size="sm" variant="outline" disabled={page >= pages - 1} onClick={() => setPage(page + 1)}>Далее</Button>
-                </span>
-              </div>
-            )}
-            {!summary.rowsExact && (
-              <p className="mt-2 text-xs text-muted-foreground">
-                Показаны первые {report.errors.length} из {int(report.error_count)} ошибок; остальные строки появятся после исправления.
-              </p>
-            )}
-            <details className="mt-3 rounded-lg border text-sm">
-              <summary className="cursor-pointer rounded-lg px-3 py-2 outline-none focus-visible:ring-2 focus-visible:ring-ring">
-                Технические сведения (коды проверок)
-              </summary>
-              <div className="flex flex-wrap gap-2 px-3 pb-3" data-testid="error-codes">
-                {Object.entries(report.error_counts).map(([code, n]) => (
-                  <Badge key={code} variant="outline" className="font-mono text-[11px]">{code}: {n}</Badge>
-                ))}
-                {Object.entries(report.warning_counts).map(([code, n]) => (
-                  <Badge key={code} variant="outline" className="font-mono text-[11px] text-muted-foreground">{code}: {n} (предупр.)</Badge>
-                ))}
-              </div>
-            </details>
-          </div>
-        )}
-
-        {report.ok && cols.length > 0 && (
-          <div>
-            <h3 className="mb-2 text-sm font-medium">Предпросмотр (первые {report.preview.length} записей после нормализации)</h3>
-            <div className="max-h-80 overflow-auto rounded-lg border" role="region" aria-label="Предпросмотр записей" tabIndex={0}>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Строка</TableHead>
-                    {cols.map((c) => <TableHead key={c} className="font-mono text-xs">{c}</TableHead>)}
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {report.preview.map((r) => (
-                    <TableRow key={String(r.row)}>
-                      <TableCell className="text-muted-foreground">{String(r.row)}</TableCell>
-                      {cols.map((c) => <TableCell key={c} className="text-xs">{r[c] === null ? "—" : String(r[c])}</TableCell>)}
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          </div>
-        )}
-
-        {!done && (
-          <div className="flex flex-wrap items-center gap-2 border-t pt-4">
-            <Button onClick={onCommit} disabled={!report.ok || phase === "committing"} data-testid="commit-button">
-              {phase === "committing" && <Loader2 className="size-4 animate-spin" aria-hidden />}
-              6. Подтвердить импорт ({int(report.valid_rows)} записей)
-            </Button>
-            <Button variant="outline" onClick={onDiscard} disabled={phase === "committing"}>Отменить</Button>
-            {report.ok && report.warning_count > 0 && (
-              <span className="text-xs text-muted-foreground">Подтверждая, вы принимаете изменения из предупреждений выше.</span>
-            )}
-          </div>
-        )}
-      </CardContent>
-    </Card>
   );
 }

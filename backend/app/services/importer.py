@@ -49,6 +49,8 @@ ALL_COLUMNS = REQUIRED_COLUMNS + OPTIONAL_COLUMNS
 # Columns that must be non-empty in every row (textbook_id may be empty -> warning).
 NON_EMPTY = [c for c in REQUIRED_COLUMNS if c != "textbook_id"]
 ASSESSMENT_KINDS = {"pre", "post", "current"}
+# Fields whose value comes from the result cell itself in a wide gradebook (traced to that cell's column).
+RESULT_FIELDS = {"score", "max_score"}
 MAX_LISTED_ISSUES = 300
 MAX_XLSX_UNCOMPRESSED_BYTES = 100 * 1024 * 1024  # guard against zip bombs
 MAX_XLSX_MEMBERS = 2000
@@ -67,9 +69,22 @@ class Issue:
     column: str | None
     code: str
     message: str
+    # Guided import traceability (set only there): source column letter, worksheet, bounded value preview,
+    # corrective action, validation stage and number of identical occurrences collapsed into this issue.
+    source_column: str | None = None
+    sheet: str | None = None
+    value: str | None = None
+    suggestion: str | None = None
+    stage: str | None = None
+    count: int | None = None
 
     def as_dict(self) -> dict[str, Any]:
-        return {"row": self.row, "column": self.column, "code": self.code, "message": self.message}
+        d = {"row": self.row, "column": self.column, "code": self.code, "message": self.message}
+        for k in ("source_column", "sheet", "value", "suggestion", "stage", "count"):
+            v = getattr(self, k)
+            if v is not None:
+                d[k] = v
+        return d
 
 
 @dataclass
@@ -108,9 +123,11 @@ class ValidationResult:
 
 
 def _preview_row(r: dict[str, Any]) -> dict[str, Any]:
-    return {k: (v.isoformat() if isinstance(v, date) else v) for k, v in r.items() if k != "_row"} | {
-        "row": r["_row"]
-    }
+    out = {k: (v.isoformat() if isinstance(v, date) else v) for k, v in r.items()
+           if k not in ("_row", "_col", "_skip")} | {"row": r["_row"]}
+    if "_col" in r:
+        out["source_column"] = r["_col"]
+    return out
 
 
 # --------------------------------------------------------------------------- parsing
@@ -240,11 +257,13 @@ def _date(value: str) -> date | None:
 
 
 def validate_dataframe(df: pd.DataFrame, existing_loader: "Callable[[list[dict[str, Any]]], ExistingState] | None" = None,
-                       row_numbers: list[int] | None = None) -> ValidationResult:
+                       row_numbers: list[int] | None = None,
+                       source_columns: list[str | None] | None = None) -> ValidationResult:
     """Validate a table with canonical column names.
 
     ``row_numbers`` gives the original worksheet row of every DataFrame row (guided import with title rows and a
-    selected header row); by default the header is row 1 and data starts at row 2.
+    selected header row); by default the header is row 1 and data starts at row 2. ``source_columns`` gives the
+    source column letter of the result cell for records created from a wide gradebook (one row -> many records).
     """
     res = ValidationResult()
     res.columns_found = list(df.columns)
@@ -269,6 +288,7 @@ def validate_dataframe(df: pd.DataFrame, existing_loader: "Callable[[list[dict[s
     normalized: list[dict[str, Any]] = []
     for idx, raw in enumerate(records):
         rownum = row_numbers[idx] if row_numbers is not None else idx + 2  # default: header is row 1
+        src_col = source_columns[idx] if source_columns is not None else None
         native = {c: raw.get(c) for c in ALL_COLUMNS}
         rec = {c: _cell_text(native[c]) for c in ALL_COLUMNS}
         if not any(rec[c] for c in ALL_COLUMNS):
@@ -279,7 +299,7 @@ def validate_dataframe(df: pd.DataFrame, existing_loader: "Callable[[list[dict[s
         def err(col: str | None, code: str, msg: str) -> None:
             nonlocal row_ok
             row_ok = False
-            res.errors.append(Issue(rownum, col, code, msg))
+            res.errors.append(Issue(rownum, col, code, msg, source_column=src_col if col in RESULT_FIELDS else None))
 
         for c in NON_EMPTY:
             if not rec[c]:
@@ -288,6 +308,8 @@ def validate_dataframe(df: pd.DataFrame, existing_loader: "Callable[[list[dict[s
             continue
 
         out: dict[str, Any] = {"_row": rownum}
+        if src_col is not None:
+            out["_col"] = src_col
         out["school"] = rec["school"] or DEFAULT_SCHOOL
         for c in ("student_id", "topic_id", "assessment_id"):
             if not CODE_RE.match(rec[c]):
