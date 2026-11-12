@@ -36,10 +36,10 @@ export const ISSUE_TITLE: Record<string, string> = {
   ALREADY_IMPORTED: "Строки уже загружены",
 };
 
-/** Plain-language names for the exact spreadsheet headers (the header itself is always shown too). */
+/** Shared display labels. Technical field keys remain unchanged in data and contracts. */
 export const COLUMN_LABEL: Record<string, string> = {
-  school: "Школа",
-  student_id: "Идентификатор ученика",
+  school: "Код школы",
+  student_id: "Код ученика",
   grade: "Параллель",
   class: "Класс",
   subject: "Предмет",
@@ -50,17 +50,22 @@ export const COLUMN_LABEL: Record<string, string> = {
   assessment_date: "Дата оценивания",
   comparison_group: "Группа сравнения",
   item_id: "Код задания",
-  score: "Балл",
+  score: "Полученный балл",
   max_score: "Максимальный балл",
   textbook_id: "Код учебника",
   textbook_name: "Название учебника",
-  teaching_hours: "Часы на тему",
+  teaching_hours: "Учебные часы",
   topic_min_hours: "Мин. часов темы",
   topic_max_hours: "Макс. часов темы",
   topic_priority: "Приоритет темы",
   topic_prerequisites: "Предшествующие темы",
   topic_order: "Порядок темы",
 };
+
+/** Unknown fields keep their original name, including names from Object.prototype. */
+export function importFieldLabel(field: string): string {
+  return Object.hasOwn(COLUMN_LABEL, field) ? COLUMN_LABEL[field] : field;
+}
 
 export function issueTitle(code: string): string {
   return ISSUE_TITLE[code] ?? "Ошибка в данных";
@@ -69,7 +74,7 @@ export function issueTitle(code: string): string {
 export function columnLabel(column: string | null): { label: string; header: string } | null {
   if (!column) return null;
   const headers = column.split(",").map((c) => c.trim()).filter(Boolean);
-  return { header: headers.join(", "), label: headers.map((h) => COLUMN_LABEL[h] ?? h).join(", ") };
+  return { header: headers.join(", "), label: headers.map(importFieldLabel).join(", ") };
 }
 
 export interface RowGroup {

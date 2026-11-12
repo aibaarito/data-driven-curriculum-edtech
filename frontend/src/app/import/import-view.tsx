@@ -17,7 +17,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { useApi } from "@/hooks/use-api";
 import { api, ApiError, uploadFile } from "@/lib/api";
 import { dateTime, int } from "@/lib/format";
-import { columnLabel, groupByRow, issueTitle, summarizeErrors } from "@/lib/import-issues";
+import { columnLabel, groupByRow, importFieldLabel, issueTitle, summarizeErrors } from "@/lib/import-issues";
 import { MAX_UPLOAD_MB, uploadSchema, type UploadForm } from "@/lib/schemas";
 import type { ImportBatch, ImportPreview, ValidationIssue } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -400,8 +400,8 @@ function PreviewPanel({ preview, page, setPage, phase, onCommit, onDiscard }: {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Строка</TableHead>
-                    {cols.map((c) => <TableHead key={c} className="font-mono text-xs">{c}</TableHead>)}
+                    <TableHead scope="col">Строка</TableHead>
+                    {cols.map((c) => <TableHead key={c} scope="col" className="min-w-28 whitespace-normal text-xs">{importFieldLabel(c)}</TableHead>)}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
