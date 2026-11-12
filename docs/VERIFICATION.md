@@ -1,3 +1,25 @@
+# Post-merge verification of `main` — 12 November 2026 (Linux cloud container)
+
+Scope: `main` after merging `claude/sharp-noether-oeabba` (Decision Intelligence 2.0 + CI) on top of
+`16aba37` (Railway readiness). Everything below was run in this session on a disposable PostgreSQL 16 cluster
+(trust auth, loopback, port 55440); no demo database or demo port was touched. LLM key empty (deterministic mode).
+
+| Check | Result |
+|---|---|
+| Backend `pytest`, fresh `ddc_verify_test` | **283 passed**, 1 skipped (`test_railway_deployment.py`: host lacks dual-stack IPv6) |
+| Frontend unit (Vitest) | **70 passed** (9 files) |
+| `npm run typecheck`, ESLint (src, e2e, config) | passed |
+| `next build` | passed (11 product pages, API proxy, health route) |
+| Playwright, isolated stack 8011/3011, `ddc_browser_test`, preinstalled Chromium | **19 / 19 passed** |
+| Alembic on empty databases | `d85f0598c8c6 → 6129d2b374e8 → b7c1d2e3f4a5` (linear history) |
+| README quick start, fresh `ddc_quickstart`, ports 8010/3010 | migrations applied; `/api/health` ok; synthetic demo CSV previewed (199 students, 0 errors) and committed through the proxy (15 830 rows); UI responded 200 |
+
+Counts grew relative to the branch record below because the merged tree also contains the Railway regression
+tests from `main` (`test_railway_deployment.py`, `readiness.test.ts`, extra proxy tests), which the branch
+record predates. Not verified: Docker images, live Gemini, macOS `dev.sh`, real data.
+
+---
+
 # Decision Intelligence 2.0 verification — 11 November 2026 (Linux cloud container)
 
 Branch `claude/sharp-noether-oeabba`, built on `main@a0a2edb`. Everything below was run in this session. The
