@@ -459,6 +459,22 @@ def _cross_row_checks(rows: list[dict[str, Any]], res: ValidationResult) -> None
                 res.errors.append(Issue(r["_row"], "topic_prerequisites", "INVALID_PREREQUISITE",
                                         f"Пререквизит «{p}» относится к другому предмету."))
 
+    # Prerequisites must form a directed acyclic graph: a cycle makes "learn A before B" contradictory.
+    first_row: dict[str, int] = {}
+    edges: set[tuple[str, str]] = set()
+    for r in rows:
+        for p in r["topic_prerequisites"]:
+            if p != r["topic_id"] and p in topic_ids:
+                edges.add((p, r["topic_id"]))
+                first_row.setdefault(r["topic_id"], r["_row"])
+    if edges:
+        from app.services.curriculum_graph import find_cycle  # local import: keeps the importer standalone
+
+        cycle = find_cycle(sorted(topic_ids), sorted(edges))
+        if cycle:
+            res.errors.append(Issue(first_row.get(cycle[1]), "topic_prerequisites", "CYCLIC_PREREQUISITE",
+                                    "Пререквизиты образуют цикл: " + " → ".join(cycle) + "."))
+
     no_tb = {(r["school"], r["class"], r["subject"]) for r in rows if not r["textbook_id"]}
     if no_tb:
         res.warnings.append(Issue(None, "textbook_id", "MISSING_TEXTBOOK",

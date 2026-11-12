@@ -1,16 +1,19 @@
 "use client";
 
-import { AlertTriangle, CheckCircle2, HelpCircle } from "lucide-react";
+import { AlertTriangle, CheckCircle2, FileSearch, HelpCircle } from "lucide-react";
 
 import { DistributionChart, GroupedBars, PALETTE } from "@/components/charts";
+import { EvidenceBadge, PassportSheet } from "@/components/evidence-passport";
 import { FilterBar, useFilters } from "@/components/filter-bar";
 import { RequireData } from "@/components/page-frame";
 import { EmptyState, ErrorState, LoadingState } from "@/components/states";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useApi } from "@/hooks/use-api";
+import type { Passport } from "@/lib/decision-types";
 import { toQuery } from "@/lib/filters";
 import { ci, int, num, pct, signed } from "@/lib/format";
 import type { TextbookPair, TextbooksResponse } from "@/lib/types";
@@ -26,7 +29,9 @@ export function TextbooksView() {
 
 function Content() {
   const [f] = useFilters();
-  const { data, error, loading, reload } = useApi<TextbooksResponse>(`/api/analytics/textbooks${toQuery({ ...f, class_id: undefined, textbook_id: undefined })}`);
+  const scoped = toQuery({ ...f, class_id: undefined, textbook_id: undefined });
+  const { data, error, loading, reload } = useApi<TextbooksResponse>(`/api/analytics/textbooks${scoped}`);
+  const passports = useApi<{ passports: Passport[] }>(`/api/evidence/textbooks${scoped}`);
   if (error) return <ErrorState error={error} onRetry={reload} />;
   if (loading || !data) return <LoadingState />;
   if (data.textbooks.length === 0) return <EmptyState title="Нет данных об учебниках" text={data.message ?? "Для выбранных фильтров нет классов с указанным учебником."} showImport={false} />;
@@ -55,7 +60,8 @@ function Content() {
         </CardContent></Card>
       ) : (
         <div className="grid gap-4" data-testid="textbook-verdicts">
-          {data.pairs.map((p) => <PairCard key={`${p.textbook_a}-${p.textbook_b}`} p={p} />)}
+          {data.pairs.map((p) => <PairCard key={`${p.textbook_a}-${p.textbook_b}`} p={p}
+            passport={passports.data?.passports.find((x) => x.subject_id === `${p.textbook_a}-${p.textbook_b}`)} />)}
         </div>
       )}
 
@@ -143,7 +149,7 @@ const HEADLINE = {
   observational: "Наблюдаемая связь, не доказательство эффекта",
 } as const;
 
-function PairCard({ p }: { p: TextbookPair }) {
+function PairCard({ p, passport }: { p: TextbookPair; passport?: Passport }) {
   const observed = p.verdict === "observed_difference";
   const lvl = p.ci_level;
   const levelNote = p.pairs_in_family > 1 ? ` (поправка на ${p.pairs_in_family} сравнения в выбранной группе)` : "";
@@ -162,6 +168,15 @@ function PairCard({ p }: { p: TextbookPair }) {
           Единица анализа — класс: классов {p.classes_a} и {p.classes_b}{students}
           {p.excluded_small_classes ? `; исключено малых классов: ${p.excluded_small_classes}` : ""}.
         </CardDescription>
+        {passport && (
+          <div className="flex flex-wrap items-center gap-2 pt-1">
+            <EvidenceBadge category={passport.gate.category} />
+            <PassportSheet passport={passport} trigger={
+              <Button variant="outline" size="sm" data-testid="pair-passport">
+                <FileSearch className="size-3.5" aria-hidden /> Паспорт доказательств
+              </Button>} />
+          </div>
+        )}
       </CardHeader>
       <CardContent className="space-y-4">
         {observed && p.adjusted ? (

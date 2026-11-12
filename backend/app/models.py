@@ -2,6 +2,7 @@
 from datetime import date, datetime
 
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
     Date,
     DateTime,
@@ -10,6 +11,7 @@ from sqlalchemy import (
     Index,
     Integer,
     String,
+    Text,
     UniqueConstraint,
     func,
 )
@@ -98,10 +100,18 @@ class TopicPrerequisite(Base):
     __table_args__ = (
         UniqueConstraint("topic_id", "prerequisite_id", name="uq_topic_prereq"),
         CheckConstraint("topic_id <> prerequisite_id", name="ck_prereq_not_self"),
+        CheckConstraint("origin IN ('import','expert','suggested')", name="ck_prereq_origin"),
+        CheckConstraint("review_status IN ('approved','pending','rejected')", name="ck_prereq_review"),
     )
     id: Mapped[int] = mapped_column(primary_key=True)
     topic_id: Mapped[int] = mapped_column(ForeignKey("topics.id", ondelete="CASCADE"), index=True)
     prerequisite_id: Mapped[int] = mapped_column(ForeignKey("topics.id", ondelete="CASCADE"), index=True)
+    # Provenance of the relationship. Only approved edges are used by diagnostics and the optimizer;
+    # suggested edges (e.g. from an assistant) stay pending until an expert approves them.
+    origin: Mapped[str] = mapped_column(String(16), default="import", server_default="import")
+    review_status: Mapped[str] = mapped_column(String(16), default="approved", server_default="approved")
+    created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), server_default=func.now(),
+                                                        nullable=True)
 
 
 class ClassTopicHours(Base):
@@ -181,6 +191,12 @@ class RecommendationRun(Base):
     result: Mapped[dict] = mapped_column(JSONB)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Decision-intelligence provenance (nullable: runs created before migration b7c1d2e3f4a5 have none).
+    scenario_key: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    evidence_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    evidence_snapshot: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True), nullable=True)
+    idempotency_key: Mapped[str | None] = mapped_column(String(64), nullable=True, unique=True)
+    review_note: Mapped[str | None] = mapped_column(Text, nullable=True)
     allocations: Mapped[list["CurriculumAllocation"]] = relationship(
         back_populates="run", cascade="all, delete-orphan"
     )
@@ -214,3 +230,48 @@ class AppSetting(Base):
     __tablename__ = "app_settings"
     key: Mapped[str] = mapped_column(String(64), primary_key=True)
     value: Mapped[dict] = mapped_column(JSONB)
+
+
+INTERVENTION_STATUSES = ("planned", "implemented", "awaiting_outcome", "evaluated", "cancelled")
+
+
+class Intervention(Base):
+    """A planned/implemented curriculum change derived from exactly one accepted recommendation run."""
+
+    __tablename__ = "interventions"
+    __table_args__ = (
+        CheckConstraint("status IN ('planned','implemented','awaiting_outcome','evaluated','cancelled')",
+                        name="ck_intervention_status"),
+        Index("ix_intervention_scope", "subject_id", "grade"),
+    )
+    id: Mapped[int] = mapped_column(primary_key=True)
+    # RESTRICT: an intervention keeps its recommendation (and frozen evidence) alive.
+    run_id: Mapped[int] = mapped_column(ForeignKey("recommendation_runs.id", ondelete="RESTRICT"), unique=True)
+    subject_id: Mapped[int] = mapped_column(ForeignKey("subjects.id", ondelete="CASCADE"))
+    grade: Mapped[int] = mapped_column(Integer)
+    status: Mapped[str] = mapped_column(String(24), default="planned", index=True)
+    description: Mapped[str] = mapped_column(Text)
+    reviewer: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    planned_on: Mapped[date | None] = mapped_column(Date, nullable=True)
+    implemented_on: Mapped[date | None] = mapped_column(Date, nullable=True)
+    baseline: Mapped[dict] = mapped_column(JSONB)  # frozen evidence snapshot at creation
+    evaluation: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True), nullable=True)
+    synthetic: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(),
+                                                 onupdate=func.now())
+
+
+class AuditEvent(Base):
+    """Append-only record of human decisions and lifecycle transitions (no personal data, no free-form payloads)."""
+
+    __tablename__ = "audit_events"
+    __table_args__ = (Index("ix_audit_entity", "entity_type", "entity_id"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    entity_type: Mapped[str] = mapped_column(String(32))
+    entity_id: Mapped[int] = mapped_column(Integer)
+    action: Mapped[str] = mapped_column(String(32))
+    from_status: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    to_status: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    detail: Mapped[dict] = mapped_column(JSONB, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

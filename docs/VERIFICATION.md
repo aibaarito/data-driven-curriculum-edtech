@@ -1,3 +1,48 @@
+# Decision Intelligence 2.0 verification — 11 November 2026 (Linux cloud container)
+
+Branch `claude/sharp-noether-oeabba`, built on `main@a0a2edb`. Everything below was run in this session. The
+earlier macOS report follows unchanged.
+
+**Isolation.** The demo database `ddc_e2e` and ports 3010/8010/55433 do not exist in this container and were never
+targeted. A disposable PostgreSQL **16** cluster was used: trust auth, loopback only, port **55434**, databases
+`ddc_verification_test` (pytest) and `ddc_browser_test` (browser stack on 8011/3011). Tokens were generated per
+run in a private mode-0600 file outside the repository. LLM key empty: deterministic explainer mode throughout.
+
+| Check | Result |
+|---|---|
+| Baseline before changes (backend / frontend unit / typecheck / ESLint) | 244 passed / 59 passed / pass / pass |
+| Backend after changes (`pytest`, 33 more than the baseline, all in `test_decision_intelligence.py`) | **277 passed** |
+| Migration: upgrade from empty schema, downgrade both revisions, upgrade again | passed (`test_migrations_are_reversible_on_disposable_database`) |
+| Frontend unit (Vitest) | **63 passed** |
+| `npm run typecheck`, ESLint (src, e2e, config) | passed, no findings |
+| Production build (`next build`) | passed; 11 product pages + API proxy |
+| Playwright, Chromium (preinstalled build via `E2E_CHROMIUM_PATH`), fresh production build | **19 / 19 passed** (16 existing + 3 new decision scenarios) |
+| PDF export in browser journey | 4-page PDF produced |
+| Access log | one JSON line per request (id, route template, status, ms); fixed-string search of the backend log found 0 student IDs, 0 `Bearer`, 0 API/admin token occurrences |
+
+New negative cases covered by automated tests: cyclic prerequisite (import and API), missing topic, self-edge,
+duplicate edge, cross-subject edge, insufficient evidence, incomparable textbook comparison, hard infeasibility and
+policy infeasibility per scenario, stale scenario save, idempotent retry and key conflict, stale recommendation
+acceptance, invalid lifecycle transitions (create from rejected/proposed run, skipping steps, future dates,
+cancelling an evaluated intervention), cross-scope passport request, request-ID sanitisation. Existing tests
+already covered invalid datasets, duplicate imports, provider timeout/429/500, a missing database (503) and
+stale asynchronous UI responses. All of these still pass.
+
+**Defects found and fixed during this work:**
+1. `alembic/env.py` called `fileConfig()` with the default `disable_existing_loggers=True`. Running migrations
+   in-process silenced the application's loggers. Now `False`.
+2. The importer accepted cyclic prerequisites. Now rejected with `CYCLIC_PREREQUISITE` and the cycle path.
+
+**Not verified here:**
+* Docker images (not run).
+* Live Gemini calls (none made).
+* macOS `dev.sh` startup.
+* Real school data.
+* Performance beyond the synthetic dataset. The decision overview recomputes analytics plus 3 optimizer runs per
+  request, about 0.4–0.6 s locally.
+
+---
+
 # Independent functional verification — 11 November 2026
 
 ## Outcome and scope

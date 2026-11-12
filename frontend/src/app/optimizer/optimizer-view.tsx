@@ -1,6 +1,7 @@
 "use client";
 
 import { Check, CircleAlert, Loader2, Lock, Play, Save, ShieldCheck, ThumbsDown, ThumbsUp, X } from "lucide-react";
+import Link from "next/link";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 
@@ -86,6 +87,15 @@ function Scope() {
             </Select>
           </div>
         </div>
+        {subjectId && grade && (
+          <p className="text-sm">
+            Нужны альтернативы?{" "}
+            <Link className="font-medium underline underline-offset-2" href={`/scenarios?subject_id=${subjectId}&grade=${grade}`}>
+              Сравнить три сценария плана
+            </Link>{" "}
+            (консервативный, сбалансированный, фокус на пробелах).
+          </p>
+        )}
         {subjectId && grade && (
           <p className="text-sm" data-testid="plan-scope-note">
             План составляется для всей параллели {grade} по предмету «{subjectName}» — один план для всех её классов.

@@ -30,8 +30,10 @@ test.beforeAll(async ({ request }) => {
   if (!adminToken) throw new Error("E2E_ADMIN_TOKEN is required (the journey resets the dedicated E2E database)");
   const r = await request.post("/api/admin/reset", { data: { confirm: "УДАЛИТЬ" }, headers: { "X-Admin-Token": adminToken } });
   expect(r.ok()).toBeTruthy();
-  const health = await (await request.get("/api/health")).json();
-  expect(health.database).toBe(true);
+  // The frontend /api/health is a minimal readiness probe: "ready" only after the backend reports a live database.
+  const health = await request.get("/api/health");
+  expect(health.status()).toBe(200);
+  expect(await health.json()).toEqual({ status: "ready" });
 });
 
 test("full methodologist journey", async ({ page }) => {
@@ -158,13 +160,14 @@ test("full methodologist journey", async ({ page }) => {
   fs.copyFileSync(file, path.join(SHOTS, "report.pdf"));
 
   // 12. Stability: every navigation link opens a real page without errors.
-  for (const name of ["Обзор", "Импорт данных", "Анализ тем", "Сравнение учебников", "Оптимизатор часов", "ИИ-пояснения", "Отчёты", "Настройки"]) {
+  for (const name of ["Обзор", "Центр решений", "Импорт данных", "Анализ тем", "Карта программы", "Сравнение учебников",
+    "Оптимизатор часов", "Сценарии плана", "ИИ-пояснения", "Отчёты", "Настройки"]) {
     await page.getByRole("link", { name }).first().click();
     await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
     await expect(page.getByText("This page could not be found")).toHaveCount(0);
   }
   const health = await (await page.request.get("/api/health")).json();
-  expect(health.status).toBe("ok");
+  expect(health.status).toBe("ready");
   expect(errors, errors.join("\n")).toEqual([]);
 });
 

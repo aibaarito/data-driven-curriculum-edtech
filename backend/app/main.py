@@ -7,9 +7,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import OperationalError, SQLAlchemyError
 
+from app.api.decision_routes import router as decision_router
 from app.api.routes import router
 from app.config import get_settings
 from app.db import get_db
+from app.observability import RequestContextMiddleware
 from app.security import AccessControlMiddleware, BodySizeLimitMiddleware
 from app.services.previews import purge_expired
 
@@ -35,16 +37,19 @@ async def lifespan(_: FastAPI):
     yield
 
 
-app = FastAPI(title="Data-Driven Curriculum API", version="1.1.0", lifespan=lifespan)
+app = FastAPI(title="Data-Driven Curriculum API", version="2.0.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[o.strip() for o in get_settings().cors_origins.split(",") if o.strip()],
     allow_methods=["GET", "POST", "PUT", "DELETE"],
-    allow_headers=["Content-Type", "Authorization", "X-Admin-Token"],
+    allow_headers=["Content-Type", "Authorization", "X-Admin-Token", "X-Request-ID"],
+    expose_headers=["X-Request-ID"],
 )
 app.add_middleware(BodySizeLimitMiddleware)
-app.add_middleware(AccessControlMiddleware)  # added last = outermost: unauthenticated requests never reach handlers
+app.add_middleware(AccessControlMiddleware)  # unauthenticated requests never reach handlers
+app.add_middleware(RequestContextMiddleware)  # outermost: every response (incl. 401/413) gets X-Request-ID + log line
 app.include_router(router)
+app.include_router(decision_router)
 
 
 @app.middleware("http")

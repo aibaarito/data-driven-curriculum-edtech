@@ -62,6 +62,11 @@ class TopicInput(BaseModel):
     gain_significant: bool | None = None  # kept for API compatibility; derived from gain_direction when given
     locked: bool = False
     prerequisites: list[int] = Field(default_factory=list)
+    # Scenario controls (defaults reproduce the original single-plan behavior exactly):
+    # hold_reason — an extra topic for the hold_without_evidence policy (e.g. evidence not "supported");
+    # need_weight — documented multiplier of the topic's need (e.g. weak dependent topics in the curriculum graph).
+    hold_reason: str | None = Field(None, max_length=300)
+    need_weight: float = Field(1.0, ge=0.5, le=2.0)
 
 
 class OptimizerInput(BaseModel):
@@ -177,7 +182,8 @@ def optimize(inp: OptimizerInput) -> dict[str, Any]:
     reliable = {t.topic_id: (t.mastery is not None and t.student_count >= inp.min_students) for t in topics}
     direction = {t.topic_id: direction_of(t) for t in topics}
     below = {t.topic_id for t in topics if reliable[t.topic_id] and t.mastery < target}
-    hold = {t.topic_id for t in topics if not reliable[t.topic_id] or direction[t.topic_id] == "decline"}
+    hold = {t.topic_id for t in topics
+            if not reliable[t.topic_id] or direction[t.topic_id] == "decline" or t.hold_reason}
     prereq_for: dict[int, list[str]] = {}
     for t in topics:
         if t.topic_id in below:
@@ -193,6 +199,7 @@ def optimize(inp: OptimizerInput) -> dict[str, Any]:
         n = t.priority * max(0.0, target - t.mastery) / 100
         if t.topic_id in prereq_for and t.topic_id in below:
             n *= PREREQ_BOOST
+        n *= t.need_weight
         need[t.topic_id] = n
     max_need = max(need.values()) or 1.0
 
@@ -379,6 +386,8 @@ def _explain(t: TopicInput, new: float, delta: float, target: float, reliable: b
             parts.append(f"предлагается {delta:g} ч, чтобы высвободить время для тем с большим разрывом")
     elif not reliable or direction == "decline":
         parts.append("часы сохранены")
+    elif t.hold_reason:
+        parts.append(f"часы сохранены: {t.hold_reason}")
     elif t.mastery < target:
         parts.append("часы сохранены: высвобожденного резерва не хватило с учётом приоритетов других тем")
     else:

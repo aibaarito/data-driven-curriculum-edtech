@@ -3,7 +3,7 @@ from __future__ import annotations
 import io
 import logging
 import statistics
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +25,7 @@ from app.api.schemas import (
 )
 from app.config import get_settings
 from app.services import analytics as an
+from app.services import evidence as evd
 from app.services.ai import generate_insights
 from app.services.context import build_context, filter_labels, topic_inputs_for
 from app.services.import_store import ImportConflict, commit_rows, load_existing_state
@@ -263,6 +264,13 @@ def import_template() -> FileResponse:
     return FileResponse(DATA_DIR / "template.csv", media_type="text/csv", filename="ddc_template.csv")
 
 
+@router.get("/imports/demo-followup.csv")
+def demo_followup() -> FileResponse:
+    """SIMULATED follow-up assessment for demonstrating outcome evaluation (scripts/generate_followup.py)."""
+    return FileResponse(DATA_DIR / "synthetic_followup.csv", media_type="text/csv",
+                        filename="synthetic_followup_SIMULATED.csv")
+
+
 @router.get("/imports/demo-dataset.csv")
 def demo_dataset() -> FileResponse:
     return FileResponse(DATA_DIR / "synthetic_assessments.csv", media_type="text/csv",
@@ -347,11 +355,19 @@ def optimizer_run(db: DB, body: OptimizerRunBody) -> dict[str, Any]:
         result = optimize(inp)
     except InfeasibleError as exc:
         raise _infeasible(exc) from exc
+    s = get_analysis_settings(db)
+    meta = evd.plan_context(db, s, body.subject_id, body.grade)
+    topics = an.topic_analytics(an.load_results(db, an.Filters(subject_id=body.subject_id, grade=body.grade)), s)
     run = m.RecommendationRun(subject_id=body.subject_id, grade=body.grade, status="proposed",
-                              params=body.model_dump(mode="json") | {"input": inp.model_dump()}, result=result)
+                              params=body.model_dump(mode="json") | {"input": inp.model_dump()}, result=result,
+                              scenario_key="balanced", evidence_fingerprint=meta["fingerprint"],
+                              evidence_snapshot=evd.evidence_snapshot(meta, topics, s))
     db.add(run)
+    db.flush()
+    db.add(m.AuditEvent(entity_type="recommendation", entity_id=run.id, action="create", to_status="proposed",
+                        detail={"scenario": "balanced"}))
     db.commit()
-    return {"run_id": run.id, "status": run.status, **result}
+    return {"run_id": run.id, "status": run.status, "evidence_fingerprint": run.evidence_fingerprint, **result}
 
 
 @router.post("/optimizer/evaluate")
@@ -368,22 +384,34 @@ def optimizer_evaluate(db: DB, body: EvaluateBody) -> dict[str, Any]:
 
 @router.post("/optimizer/runs/{run_id}/decision")
 def optimizer_decision(db: DB, run_id: int, body: DecisionBody) -> dict[str, Any]:
-    run = db.get(m.RecommendationRun, run_id)
+    run = db.get(m.RecommendationRun, run_id, with_for_update=True)
     if run is None:
         raise HTTPException(404, "Рекомендация не найдена.")
     if run.status != "proposed":
-        raise HTTPException(409, "Решение по этой рекомендации уже принято.")
-    run.decided_at = datetime.now(timezone.utc)
+        raise HTTPException(409, {"code": "INVALID_TRANSITION", "message": "Решение по этой рекомендации уже принято.",
+                                  "details": []})
+    stale = False
+    if run.evidence_fingerprint is not None:
+        current = evd.plan_context(db, get_analysis_settings(db), run.subject_id, run.grade)["fingerprint"]
+        stale = current != run.evidence_fingerprint
     if body.decision == "accept":
         if not all(c["ok"] for c in run.result["constraints"]):
             raise HTTPException(422, "Нельзя принять распределение, нарушающее ограничения.")
+        if stale and not body.acknowledge_stale:
+            raise HTTPException(409, {"code": "STALE_RECOMMENDATION", "message": "Данные изменились после расчёта "
+                                      "рекомендации. Пересчитайте её или подтвердите принятие по сохранённому снимку "
+                                      "доказательств (acknowledge_stale).", "details": []})
         run.status = "accepted"
         for r in run.result["rows"]:
             db.add(m.CurriculumAllocation(run_id=run.id, topic_id=r["topic_id"], hours=r["proposed_hours"]))
     else:
         run.status = "rejected"
+    run.decided_at = datetime.now(timezone.utc)
+    run.review_note = body.note
+    db.add(m.AuditEvent(entity_type="recommendation", entity_id=run.id, action=body.decision, from_status="proposed",
+                        to_status=run.status, detail={"stale_acknowledged": bool(stale and body.acknowledge_stale)}))
     db.commit()
-    return {"run_id": run.id, "status": run.status}
+    return {"run_id": run.id, "status": run.status, "evidence_status": "stale" if stale else "current"}
 
 
 @router.get("/optimizer/runs")
@@ -393,10 +421,20 @@ def optimizer_runs(db: DB, subject_id: int | None = None, grade: int | None = No
         q = q.where(m.RecommendationRun.subject_id == subject_id)
     if grade:
         q = q.where(m.RecommendationRun.grade == grade)
-    return [{"run_id": r.id, "status": r.status, "created_at": r.created_at.isoformat(), "grade": r.grade,
-             "subject_id": r.subject_id, "total_hours": r.result["total_hours"],
-             "changed_topics": sum(1 for x in r.result["rows"] if x["delta"] != 0), "result": r.result}
-            for r in db.scalars(q)]
+    s = get_analysis_settings(db)
+    fps: dict[tuple[int, int], str] = {}
+    out = []
+    for r in db.scalars(q):
+        key = (r.subject_id, r.grade)
+        if r.evidence_fingerprint is not None and key not in fps:
+            fps[key] = evd.plan_context(db, s, *key)["fingerprint"]
+        status = "unknown" if r.evidence_fingerprint is None else (
+            "current" if fps[key] == r.evidence_fingerprint else "stale")
+        out.append({"run_id": r.id, "status": r.status, "created_at": r.created_at.isoformat(), "grade": r.grade,
+                    "subject_id": r.subject_id, "total_hours": r.result["total_hours"],
+                    "changed_topics": sum(1 for x in r.result["rows"] if x["delta"] != 0), "result": r.result,
+                    "scenario_key": r.scenario_key, "evidence_status": status, "review_note": r.review_note})
+    return out
 
 
 # --------------------------------------------------------------------------- AI
@@ -451,21 +489,35 @@ def create_report(db: DB, body: ReportBody) -> dict[str, Any]:
         "optimizer_status_label": STATUS_LABEL.get(ctx["optimizer_status"] or "", None),
         "optimizer_scope_note": ctx.get("optimizer_scope_note"),
         "insights": insights, "limitations": _limitations(ctx), "trend": ctx["trend"],
+        "evidence": _report_evidence(db, f),
     }
     # Informative default title from the actual stored scope; the creation time is kept separately (created_at).
     title = body.title or report_title(content["filter_labels"], content["filters"])
     rep = m.GeneratedReport(title=title, filters=f.as_dict(), content=content)
     db.add(rep)
     db.commit()
-    return _report_dict(rep)
+    return _report_dict(rep, db=db)
 
 
-def _report_dict(r: m.GeneratedReport, full: bool = True) -> dict[str, Any]:
+def _report_evidence(db, f: an.Filters) -> dict[str, Any]:
+    meta = evd.context_metadata(db, get_analysis_settings(db), f.as_dict() | {"view": "report"})
+    return {k: meta[k] for k in ("fingerprint", "revision", "algorithm_version", "generated_at", "synthetic")}
+
+
+def _report_dict(r: m.GeneratedReport, full: bool = True, db=None) -> dict[str, Any]:
     d = {"id": r.id, "title": r.title, "created_at": r.created_at.isoformat(), "filters": r.filters}
     if full:
         d["content"] = r.content
         # Derived from the stored snapshot only (never from current analytics), so older reports stay consistent.
         d["discussion"] = discussion_points(r.content)
+        stored = (r.content or {}).get("evidence")
+        if db is not None and stored:
+            f = an.Filters(**{k: (date.fromisoformat(v) if k.startswith("date_") and v else v)
+                              for k, v in r.filters.items()})
+            current = _report_evidence(db, f)["fingerprint"]
+            d["evidence_status"] = "current" if current == stored["fingerprint"] else "stale"
+        else:
+            d["evidence_status"] = "unknown"
     return d
 
 
@@ -480,7 +532,7 @@ def get_report(db: DB, report_id: int) -> dict[str, Any]:
     r = db.get(m.GeneratedReport, report_id)
     if r is None:
         raise HTTPException(404, "Отчёт не найден.")
-    return _report_dict(r)
+    return _report_dict(r, db=db)
 
 
 @router.get("/reports/{report_id}/pdf")
@@ -532,7 +584,7 @@ def reset_data(db: DB, body: ResetBody, x_admin_token: str | None = Header(defau
         raise HTTPException(403, "Неверный или отсутствующий токен администратора.")
     if body.confirm != "УДАЛИТЬ":
         raise HTTPException(422, "Для удаления всех данных введите слово УДАЛИТЬ.")
-    for model in (m.CurriculumAllocation, m.RecommendationRun, m.GeneratedReport, m.AssessmentResult,
+    for model in (m.AuditEvent, m.Intervention, m.CurriculumAllocation, m.RecommendationRun, m.GeneratedReport, m.AssessmentResult,
                   m.ClassTopicHours, m.TopicPrerequisite, m.Student, m.ClassSubject, m.Assessment, m.Topic,
                   m.Textbook, m.SchoolClass, m.Subject, m.School, m.ImportBatch):
         db.execute(delete(model))
