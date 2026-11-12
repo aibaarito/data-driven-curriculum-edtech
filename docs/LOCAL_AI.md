@@ -108,10 +108,10 @@ Optional limits (defaults shown):
 | Variable | Default | Meaning |
 |---|---|---|
 | `LLM_TIMEOUT_SECONDS` | 30 | Per model call. Use about 120 for a local 8B model; the first call also loads the weights |
-| `LLM_TOTAL_TIMEOUT_SECONDS` | 2 × per-call | Both attempts together; a retry is not started after the deadline |
+| `LLM_TOTAL_TIMEOUT_SECONDS` | 2 × per-call, at most 280 | Both attempts together; a retry is not started after the deadline. Capped at 280 s because the Next.js proxy stops waiting for the backend after 300 s |
 | `LLM_MAX_CONCURRENCY` | 1 | Model calls at once per backend process; another request gets templates immediately |
 | `LLM_MAX_OUTPUT_TOKENS` | 2048 | Ollama `num_predict`; an answer cut off at this limit is rejected |
-| `LLM_CONTEXT_TOKENS` | 8192 | Ollama `num_ctx`; prompt plus facts for the demo dataset are at most 10,800 characters (all grades) |
+| `LLM_CONTEXT_TOKENS` | 12288 | Ollama `num_ctx`. The grade-7 demo prompt measured 4,479 tokens; all grades about 14,400 characters. A prompt that might not fit with the output (estimated at 2 characters per token) uses templates, because Ollama would otherwise silently drop part of it |
 | `LLM_MAX_INPUT_CHARS` | 24000 | Larger fact sets use templates. Facts are never silently truncated |
 | `LLM_KEEP_ALIVE` | 10m | How long Ollama keeps the model loaded after a request |
 
@@ -132,6 +132,10 @@ followed by `lsof -p <PID> | grep cwd`.
 Then open <http://127.0.0.1:3010/insights>, choose filters and press **Сформировать пояснения**. A successful
 answer is labelled **«Пояснения написала локальная модель qwen3:8b (Ollama, на этом компьютере)»**. Template
 explanations are always labelled as templates and give the reason.
+
+![The AI explanations page for Mathematics, grade 8, on synthetic data. The banner reads 'Пояснения написала локальная модель qwen3:8b (Ollama, на этом компьютере)' with 'Числа сверены с расчётами'; below it a summary and two findings about topics with a statistically significant increase, each with the backend facts it relies on.](assets/local-ai-qwen.png)
+
+*An accepted Qwen3-8B answer in the application (synthetic data, grade 8), recorded during verification.*
 
 ## 6. Tests
 
@@ -179,3 +183,8 @@ first-attempt and retry acceptance, rejection categories, cold and warm latency,
   are pattern lists, so a reader should still review explanations before sharing them.
 * **Speed depends on the machine.** See [VERIFICATION.md](VERIFICATION.md) for the measured results and the
   hardware they were measured on.
+* **Measured quality is not demo-ready.** In the live evaluation (22 synthetic contexts, Linux CPU), 6 answers
+  were accepted and 16 contexts fell back to templates; every rejection was a real rule violation. Of the 6
+  accepted answers, 2 were fully sound on manual review; the others contained a mislabelled value, an invented
+  hours recommendation or a false comparison ("60 учеников не достигает порога 10"). Treat model text as a draft
+  for a person to check. The template explanations remain the reliable default.

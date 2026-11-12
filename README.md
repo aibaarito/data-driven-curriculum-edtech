@@ -187,7 +187,8 @@ Configuration lives in `backend/.env` locally (root `.env` for Compose) and is n
 | `DEMO_BASIC_AUTH_USER`, `DEMO_BASIC_AUTH_PASSWORD` | optional | HTTP Basic protection for the whole UI |
 | `LLM_PROVIDER`, `LLM_MODEL`, `LLM_BASE_URL`, `LLM_TIMEOUT_SECONDS`, `LLM_API_KEY` | optional | Model-written explanations. `ollama` needs no key; remote providers without a key use the deterministic explainer |
 
-To use Gemini, set these in the private file only:
+To run explanations with a local model instead (Qwen3-8B through Ollama, no key), follow
+[docs/LOCAL_AI.md](docs/LOCAL_AI.md). To use Gemini, set these in the private file only:
 
 ```dotenv
 LLM_PROVIDER=openai_compatible
@@ -201,18 +202,19 @@ The model receives aggregate facts only, with no student identifiers. If the pro
 or produces output that fails validation, the app falls back to deterministic explanations and reports why.
 
 **AI evidence, stated precisely:** the project handoff records one successful live Gemini request (about 27 s)
-from an earlier session. The verification in this repository used mocked provider responses (timeouts, HTTP
-401/429/500, invalid envelopes, grounding violations) and deterministic mode. No live model call was made in
-the current verification.
+from an earlier session. The local Qwen3-8B integration was verified live on 12 November 2026 on a CPU-only
+Linux host: 6 of 22 synthetic contexts produced an accepted answer (2 on the first attempt), the rest fell back to
+templates, and one accepted answer appeared through the application. Accepted text still needs a human check.
+Details: [docs/LOCAL_AI.md](docs/LOCAL_AI.md) and [docs/VERIFICATION.md](docs/VERIFICATION.md).
 
 ## Verification
 
-Fresh results on the integrated `main` (12 November 2026, Linux, disposable PostgreSQL 16, deterministic mode):
+Fresh results (12 November 2026, Linux, disposable PostgreSQL 16, template mode; model calls mocked):
 
 | Check | Result |
 |---|---|
-| Backend `pytest` (fresh `*_test` database) | **283 passed**, 1 skipped (IPv6 dual-stack test; the host lacks IPv6) |
-| Frontend unit tests (Vitest) | **70 passed** |
+| Backend `pytest` (fresh `*_test` database) | **329 passed**, 1 skipped (IPv6 dual-stack test; the host lacks IPv6) |
+| Frontend unit tests (Vitest) | **78 passed** |
 | `npm run typecheck`, ESLint | passed |
 | Production build (`next build`) | passed |
 | Playwright end-to-end, isolated stack (ports 8011/3011) | **19 / 19 passed** |
@@ -246,8 +248,8 @@ session, real school data, and performance beyond the synthetic dataset.
   cannot remove residual confounding, and few classes means low statistical power.
 * **Access model.** A single shared API token, or loopback-only access by default. There are no user accounts,
   roles or per-school isolation. **Not suitable for real student data in its current form.**
-* **External AI is optional and unverified live here.** Provider availability, quota and latency are outside the
-  app's control; the deterministic explainer covers outages.
+* **Model explanations are optional and need review.** Gemini availability and quota are outside the app's control;
+  the local Qwen3-8B model was slow and often rejected in the CPU-only verification. Templates cover every failure.
 * **Modelling scope.** One hours plan per grade; no item-difficulty (IRT) model; no knowledge tracing; scenario
   plans carry no optimality certificate; the priority score and decision rules are fixed heuristics in code.
 * **Localisation.** The interface is Russian; some page text is still inline rather than in the translation file.

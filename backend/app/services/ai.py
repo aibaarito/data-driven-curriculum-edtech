@@ -638,7 +638,12 @@ def generate_insights(context: dict[str, Any], settings: Settings, llm=call_llm)
         user = ("FACTS = " + json.dumps(facts, ensure_ascii=False) +
                 "\nENTITY_PLACEHOLDERS = " + json.dumps(placeholder_map(facts), ensure_ascii=False) +
                 "\nGLOBAL_PLACEHOLDERS = " + json.dumps(global_placeholders(facts), ensure_ascii=False))
-        if len(user) + len(SYSTEM_PROMPT) > settings.llm_max_input_chars:
+        prompt_chars = len(user) + len(SYSTEM_PROMPT)
+        # Ollama silently drops the start of a prompt that does not fit num_ctx. Estimate conservatively at two
+        # characters per token (measured on this prompt: about 2.3) and refuse instead of losing facts.
+        local_overflow = (settings.llm_provider == "ollama" and
+                          prompt_chars / 2 > settings.llm_context_tokens - settings.llm_max_output_tokens)
+        if prompt_chars > settings.llm_max_input_chars or local_overflow:
             fallback_kind = "too_large"  # never truncate facts silently
             log.warning("LLM skipped: %s input characters exceed the configured limit", len(user))
         else:

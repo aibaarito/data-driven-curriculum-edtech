@@ -155,7 +155,7 @@ def check(text: str, facts: dict[str, Any]) -> None:
 
 
 class MemorySampler(threading.Thread):
-    """Peak resident memory of all ollama processes and swap usage, sampled from /proc (Linux) every 0.5 s."""
+    """Peak resident memory of Ollama and its model runner (llama-server) plus swap, from /proc (Linux), every 0.5 s."""
 
     def __init__(self):
         super().__init__(daemon=True)
@@ -167,7 +167,8 @@ class MemorySampler(threading.Thread):
         total = 0
         for pid in filter(str.isdigit, os.listdir("/proc")):
             try:
-                if "ollama" not in Path(f"/proc/{pid}/comm").read_text():
+                comm = Path(f"/proc/{pid}/comm").read_text()
+                if "ollama" not in comm and "llama-server" not in comm:
                     continue
                 for line in Path(f"/proc/{pid}/status").read_text().splitlines():
                     if line.startswith("VmRSS:"):

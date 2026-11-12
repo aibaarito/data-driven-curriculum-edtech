@@ -5,6 +5,9 @@ from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+LLM_TOTAL_TIMEOUT_CAP = 280.0  # seconds; below the frontend proxy's 300 s wait for response headers
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
@@ -30,11 +33,13 @@ class Settings(BaseSettings):
     llm_model: str = "claude-sonnet-5-5"
     llm_base_url: str = ""  # openai_compatible: required; ollama: defaults to http://127.0.0.1:11434
     llm_timeout_seconds: float = 30.0  # per model call
-    # Whole explanation request (both attempts together); 0 = 2 x llm_timeout_seconds.
+    # Whole explanation request (both attempts together); 0 = 2 x llm_timeout_seconds. Capped at
+    # LLM_TOTAL_TIMEOUT_CAP: the Next.js proxy (Node fetch) stops waiting for response headers after 300 s, so
+    # the backend must answer before that, with model text or with template explanations.
     llm_total_timeout_seconds: float = 0.0
     llm_max_concurrency: int = 1  # model calls in flight per backend process; others fall back instead of queuing
     llm_max_output_tokens: int = 2048  # ollama num_predict
-    llm_context_tokens: int = 8192  # ollama num_ctx
+    llm_context_tokens: int = 12288  # ollama num_ctx; prompt + output must fit (see llm_max_input_chars)
     llm_max_input_chars: int = 24000  # facts + prompt; larger requests use the deterministic explainer (no truncation)
     llm_keep_alive: str = "10m"  # ollama: how long the model stays loaded after a request
 
@@ -56,7 +61,7 @@ class Settings(BaseSettings):
 
     @property
     def llm_total_timeout(self) -> float:
-        return self.llm_total_timeout_seconds or 2 * self.llm_timeout_seconds
+        return min(self.llm_total_timeout_seconds or 2 * self.llm_timeout_seconds, LLM_TOTAL_TIMEOUT_CAP)
 
     @property
     def max_upload_bytes(self) -> int:

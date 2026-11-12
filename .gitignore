@@ -54,6 +54,7 @@ verification/*
 !verification/client-secret-scan.json
 !verification/upload-smoke.json
 !verification/live-smoke-default.json
+!verification/local-llm-eval.json
 !verification/backend-final.xml
 
 # --- Logs, OS, editors ---

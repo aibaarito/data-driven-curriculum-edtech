@@ -1,3 +1,73 @@
+# Local Qwen3-8B integration — 12 November 2026 (Linux cloud container, CPU only)
+
+Scope: the `ollama` provider (`backend/app/services/ai.py`) with **Qwen3-8B** served by **Ollama 0.40.16** on
+`127.0.0.1:11434` (`OLLAMA_NO_CLOUD=1`, log: `Ollama cloud disabled: true`; `OLLAMA_NUM_PARALLEL=1`,
+`OLLAMA_MAX_LOADED_MODELS=1`). Model `qwen3:8b`: qwen3, 8.2B parameters, GGUF **Q4_K_M**, 5.2 GB download,
+thinking values `[false, true]`. Request: native `/api/chat`, `think: false`, `format` = JSON Schema of `LLMPayload`,
+temperature 0.7, top_p 0.8, top_k 20, min_p 0. Host: 4 logical CPUs, no GPU, 16 GB RAM, no swap. This is **not**
+the user's Apple M4; latency on Apple silicon with Metal is expected to be much lower but was not measured.
+
+**Automated checks (mocked provider; no Ollama, model or network needed)**
+
+| Check | Result |
+|---|---|
+| Backend `pytest`, fresh `ddc_verify_test` | **329 passed**, 1 skipped (IPv6 dual-stack test) |
+| of which `tests/test_ai_ollama.py` + eval-harness contract | 44 + 4 passed |
+| Frontend Vitest (incl. new `mode-view.test.ts`) | **78 passed** |
+| `npm run typecheck`, ESLint, `next build` | passed |
+| Playwright, isolated stack 8011/3011, template mode as in CI | **19 / 19 passed** |
+
+**Live evaluation** (`scripts/eval_local_llm.py --live`, 22 synthetic contexts, per-call timeout 420 s,
+`num_ctx 8192`, `num_predict 2048`; summary in [verification/local-llm-eval.json](../verification/local-llm-eval.json))
+
+| Measure | Result |
+|---|---|
+| Accepted on the first attempt | **2 / 22** |
+| Accepted after the one permitted retry | **4 / 22** |
+| Deterministic fallback (both answers rejected) | **16 / 22** |
+| Rejections per model call (42 calls) | unknown placeholder 12 · `{{name}}` outside findings 7 · unknown entity 6 · literal topic name 6 · internal code in prose 5 |
+| Cold first call / warm calls | 155 s / median 133 s (min 70, max 281) |
+| Memory with the model loaded (`num_ctx 8192`) | `llama-server` RSS 8,468 MB (weights 4,730 + 335 MiB, KV cache 1,152 MiB, compute 240 MiB); no swap |
+| Crashes / provider errors | none |
+
+Every rejection was a real rule violation (checked from the recorded messages); no validator rule was relaxed.
+**Manual review of the 6 accepted answers:** 2 fully sound (`difficult_inconclusive`, `multi_topic_no_mixing`);
+4 with at least one misleading statement the validator cannot see — topic mastery called "общее освоение",
+invented hour recommendations for topics in good shape, a duplicated unit ("8 ч часов") and a false comparison
+("Количество учеников 60 не достигает порога 10"). Values were always bound to the right entity.
+The memory sampler in the script missed the `llama-server` process during the run; the figure above was measured
+with `ps` immediately afterwards, and the script is fixed. Two earlier prompt versions were evaluated partly
+(1/13 and 2/5 accepted); their failures led to the placeholder lists and the worked example now in the prompt.
+
+**Application check** (isolated backend 8011 + production frontend 3011, synthetic demo database
+`ddc_browser_test`, `LLM_PROVIDER=ollama`, no `LLM_API_KEY` set, per-call 270 s, total 280 s)
+
+| Scope / test | Result |
+|---|---|
+| Settings API | `{"enabled": true, "provider": "ollama", "model": "qwen3:8b"}` |
+| Математика · 7 класс (prompt 4,479 tokens), 3 tries | 3 × template fallback labelled «Модель не ответила вовремя»: one timeout; twice the first answer (≈260 s) was rejected and no time was left for the retry |
+| Математика · 8 класс, 2 tries | try 1 timeout fallback; **try 2 accepted on the first call in 251 s**, labelled «Пояснения написала локальная модель qwen3:8b (Ollama, на этом компьютере)». Checked against the facts: mastery and change values on the right topics, increases described as significant increases, textbook comparison reported as insufficient evidence with no winner. Cosmetic: "п.п.." |
+| Loading state | shows the selected group and elapsed time while waiting |
+| Ollama unreachable (backend pointed at a closed port) | template fallback, `fallback_kind=unavailable`, page title «Локальная модель недоступна — показаны пояснения по шаблонам» |
+| Model not installed (`qwen3:not-installed`) | template fallback after 1 attempt, `model_missing`, message names the model |
+| Logs | only the failure kind and timings, no provider text or keys |
+
+**Defects found and fixed during this check**
+1. The Next.js proxy (Node `fetch`) stops waiting for response headers after 300 s; with an 840 s backend budget
+   the page showed "server unavailable" instead of the template fallback. The total model budget is now capped at
+   280 s (`LLM_TOTAL_TIMEOUT_CAP`), so the backend always answers first.
+2. The real all-grades prompt (≈14,400 characters) plus the output could exceed `num_ctx 8192`, and Ollama would
+   silently drop part of the prompt. Default `num_ctx` is now 12,288, and a prompt that may not fit (estimated
+   conservatively at 2 characters per token; measured ≈2.3) uses templates (`too_large`).
+
+**Conclusion.** The integration works end to end and the fallback is truthful in every failure mode tested. On this
+CPU-only host, Qwen3-8B is too slow and too unreliable with the placeholder protocol for an unattended
+demonstration: most requests end in template explanations, and accepted text still needs a human check. Not
+verified: latency and acceptance on the Apple M4, `OLLAMA_NO_CLOUD` through the macOS app, Qwen3-4B (not
+downloaded, as agreed).
+
+---
+
 # Post-merge verification of `main` — 12 November 2026 (Linux cloud container)
 
 Scope: `main` after merging `claude/sharp-noether-oeabba` (Decision Intelligence 2.0 + CI) on top of

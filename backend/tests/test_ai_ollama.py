@@ -308,3 +308,16 @@ def test_placeholder_map_lists_own_metrics_without_internal_codes():
     assert "status" not in m["topic.T1"] and "gain_direction" not in m["topic.T1"]
     assert "verdict" not in m["comparison.0"]
     assert "SHARED" not in m and "overview.students" in ai.global_placeholders(ai.build_facts(CTX))
+
+
+def test_total_deadline_is_capped_below_the_frontend_proxy_wait():
+    """Found in the live app check: a 840 s budget outlived the Next.js proxy's 300 s header wait."""
+    from app.config import LLM_TOTAL_TIMEOUT_CAP
+    s = OLLAMA.model_copy(update={"llm_timeout_seconds": 420, "llm_total_timeout_seconds": 840})
+    assert s.llm_total_timeout == LLM_TOTAL_TIMEOUT_CAP < 300
+
+
+def test_prompt_that_cannot_fit_the_local_context_falls_back_instead_of_being_truncated(fake_post):
+    s = OLLAMA.model_copy(update={"llm_context_tokens": 2048, "llm_max_output_tokens": 1024})
+    out = generate_insights(CTX, s)
+    assert out["fallback_kind"] == "too_large" and out["attempts"] == 0 and fake_post[0] == []

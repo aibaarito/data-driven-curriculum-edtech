@@ -1,0 +1,1162 @@
+{
+ "kind": "LIVE local model evaluation (not a mocked test)",
+ "runtime": {
+  "ollama_version": "0.40.16",
+  "model": "qwen3:8b",
+  "family": "qwen3",
+  "parameter_size": "8.2B",
+  "quantization": "Q4_K_M",
+  "format": "gguf",
+  "thinking_values": [
+   false,
+   true
+  ],
+  "base": "http://127.0.0.1:11434",
+  "host": "Linux x86_64, 4 logical CPUs"
+ },
+ "settings": {
+  "think": false,
+  "format": "JSON Schema of app.services.ai.LLMPayload",
+  "temperature": 0.7,
+  "top_p": 0.8,
+  "top_k": 20,
+  "min_p": 0.0,
+  "num_ctx": 8192,
+  "num_predict": 2048,
+  "per_call_timeout_s": 420.0,
+  "max_attempts": 2
+ },
+ "contexts": 22,
+ "contexts_defined": 22,
+ "accepted_first_attempt": 2,
+ "accepted_after_retry": 4,
+ "deterministic_fallback": 16,
+ "fallback_kinds": {
+  "rejected": 16
+ },
+ "model_calls": 42,
+ "first_attempt_acceptance_per_call": {
+  "rejected": 20,
+  "accepted": 2
+ },
+ "rejection_categories_per_call": {
+  "name_placeholder_without_name": 7,
+  "internal_code": 5,
+  "unknown_entity": 6,
+  "unknown_placeholder": 12,
+  "literal_name": 6
+ },
+ "cold_first_call_s": 154.6,
+ "warm_call_s": {
+  "min": 70.1,
+  "max": 280.9,
+  "median": 132.8
+ },
+ "peak_ollama_rss_mb": null,
+ "peak_swap_mb": 0,
+ "dates": [
+  "2026-11-12 10:51 UTC",
+  "2026-11-12 10:56 UTC",
+  "2026-11-12 11:01 UTC",
+  "2026-11-12 11:03 UTC",
+  "2026-11-12 11:06 UTC",
+  "2026-11-12 11:11 UTC",
+  "2026-11-12 11:14 UTC",
+  "2026-11-12 11:18 UTC",
+  "2026-11-12 11:22 UTC",
+  "2026-11-12 11:27 UTC",
+  "2026-11-12 11:34 UTC",
+  "2026-11-12 11:39 UTC",
+  "2026-11-12 11:43 UTC",
+  "2026-11-12 11:48 UTC",
+  "2026-11-12 11:56 UTC",
+  "2026-11-12 11:58 UTC",
+  "2026-11-12 12:03 UTC",
+  "2026-11-12 12:08 UTC",
+  "2026-11-12 12:12 UTC",
+  "2026-11-12 12:17 UTC",
+  "2026-11-12 12:23 UTC",
+  "2026-11-12 12:28 UTC"
+ ],
+ "results": [
+  {
+   "context": "difficult_inconclusive",
+   "mode": "llm",
+   "attempts": 2,
+   "fallback_kind": null,
+   "seconds_total": 230.4,
+   "calls": [
+    {
+     "seconds": 154.6,
+     "outcome": "rejected:name_placeholder_without_name",
+     "message": "limitation 1: entity 'overview' has no name"
+    },
+    {
+     "seconds": 75.9,
+     "outcome": "accepted"
+    }
+   ],
+   "payload": {
+    "summary": "Анализ проведён для 156 учеников; есть трудная тема, по которой изменение не установлено.",
+    "findings": [
+     {
+      "title": "Трудная тема: Формулы сокращённого умножения",
+      "text": "Тема «Формулы сокращённого умножения» трудная: освоение 40.9%. Изменение 0.6 п.п. не установлено: интервал включает ноль, это не доказывает отсутствие эффекта.",
+      "kind": "observation",
+      "entity": "topic.T1",
+      "metric_keys": [
+       "topic.T1.mastery",
+       "topic.T1.gain"
+      ]
+     },
+     {
+      "title": "Тема: Линейные уравнения",
+      "text": "Тема «Линейные уравнения» освоена на уровне 78%, что выше порога 75%.",
+      "kind": "observation",
+      "entity": "topic.T6",
+      "metric_keys": [
+       "topic.T6.mastery",
+       "settings.target_mastery"
+      ]
+     }
+    ],
+    "limitations": [
+     "Данные наблюдательные, поэтому причинные выводы невозможны."
+    ],
+    "next_steps": [
+     "Разобрать с учителями задания по трудной теме.",
+     "Увеличить время на освоение темы, где освоение ниже порога 75%."
+    ]
+   },
+   "peak_swap_mb": 0,
+   "runtime": {
+    "ollama_version": "0.40.16",
+    "model": "qwen3:8b",
+    "family": "qwen3",
+    "parameter_size": "8.2B",
+    "quantization": "Q4_K_M",
+    "format": "gguf",
+    "thinking_values": [
+     false,
+     true
+    ],
+    "base": "http://127.0.0.1:11434",
+    "host": "Linux x86_64, 4 logical CPUs"
+   },
+   "per_call_timeout_s": 420.0,
+   "date": "2026-11-12 10:51 UTC"
+  },
+  {
+   "context": "difficult_improving",
+   "mode": "deterministic",
+   "attempts": 2,
+   "fallback_kind": "rejected",
+   "seconds_total": 276.4,
+   "calls": [
+    {
+     "seconds": 151.6,
+     "outcome": "rejected:internal_code",
+     "message": "finding 0: internal code 'increase' must be expressed in Russian words"
+    },
+    {
+     "seconds": 124.8,
+     "outcome": "rejected:name_placeholder_without_name",
+     "message": "limitation 0: entity 'overview' has no name"
+    }
+   ],
+   "payload": null,
+   "peak_swap_mb": 0,
+   "runtime": {
+    "ollama_version": "0.40.16",
+    "model": "qwen3:8b",
+    "family": "qwen3",
+    "parameter_size": "8.2B",
+    "quantization": "Q4_K_M",
+    "format": "gguf",
+    "thinking_values": [
+     false,
+     true
+    ],
+    "base": "http://127.0.0.1:11434",
+    "host": "Linux x86_64, 4 logical CPUs"
+   },
+   "per_call_timeout_s": 420.0,
+   "date": "2026-11-12 10:56 UTC"
+  },
+  {
+   "context": "confirmed_decline",
+   "mode": "deterministic",
+   "attempts": 2,
+   "fallback_kind": "rejected",
+   "seconds_total": 274.4,
+   "calls": [
+    {
+     "seconds": 141.6,
+     "outcome": "rejected:unknown_entity",
+     "message": "finding 4: unknown entity overview.topics"
+    },
+    {
+     "seconds": 132.8,
+     "outcome": "rejected:unknown_entity",
+     "message": "finding 3: unknown entity overview.topics"
+    }
+   ],
+   "payload": null,
+   "peak_swap_mb": 0,
+   "runtime": {
+    "ollama_version": "0.40.16",
+    "model": "qwen3:8b",
+    "family": "qwen3",
+    "parameter_size": "8.2B",
+    "quantization": "Q4_K_M",
+    "format": "gguf",
+    "thinking_values": [
+     false,
+     true
+    ],
+    "base": "http://127.0.0.1:11434",
+    "host": "Linux x86_64, 4 logical CPUs"
+   },
+   "per_call_timeout_s": 420.0,
+   "date": "2026-11-12 11:01 UTC"
+  },
+  {
+   "context": "ok_but_declining",
+   "mode": "llm",
+   "attempts": 2,
+   "fallback_kind": null,
+   "seconds_total": 177.8,
+   "calls": [
+    {
+     "seconds": 107.7,
+     "outcome": "rejected:internal_code",
+     "message": "finding 0: internal code 'ok' must be expressed in Russian words"
+    },
+    {
+     "seconds": 70.1,
+     "outcome": "accepted"
+    }
+   ],
+   "payload": {
+    "summary": "Проанализировано 156 учеников; по одной теме зафиксировано снижение освоения.",
+    "findings": [
+     {
+      "title": "Тема: Линейная функция",
+      "text": "Тема со снижением освоения: изменение -4.1 п.п. с доверительным интервалом от -7 п.п. до -1.2 п.п.. Общее освоение 70.2%.",
+      "kind": "observation",
+      "entity": "topic.T4",
+      "metric_keys": [
+       "topic.T4.gain",
+       "topic.T4.gain_ci_low",
+       "topic.T4.gain_ci_high",
+       "topic.T4.mastery"
+      ]
+     },
+     {
+      "title": "Тема: Линейные уравнения",
+      "text": "Тема «Линейные уравнения» имеет освоение 78% и соответствует порогу освоения 75%.",
+      "kind": "observation",
+      "entity": "topic.T6",
+      "metric_keys": [
+       "topic.T6.mastery",
+       "settings.target_mastery"
+      ]
+     }
+    ],
+    "limitations": [
+     "Данные наблюдательные, поэтому причинные выводы невозможны."
+    ],
+    "next_steps": [
+     "Анализовать снижение освоения по теме с учётом изменений в методике преподавания."
+    ]
+   },
+   "peak_swap_mb": 0,
+   "runtime": {
+    "ollama_version": "0.40.16",
+    "model": "qwen3:8b",
+    "family": "qwen3",
+    "parameter_size": "8.2B",
+    "quantization": "Q4_K_M",
+    "format": "gguf",
+    "thinking_values": [
+     false,
+     true
+    ],
+    "base": "http://127.0.0.1:11434",
+    "host": "Linux x86_64, 4 logical CPUs"
+   },
+   "per_call_timeout_s": 420.0,
+   "date": "2026-11-12 11:03 UTC"
+  },
+  {
+   "context": "watch_no_gain",
+   "mode": "deterministic",
+   "attempts": 2,
+   "fallback_kind": "rejected",
+   "seconds_total": 156.9,
+   "calls": [
+    {
+     "seconds": 81.0,
+     "outcome": "rejected:name_placeholder_without_name",
+     "message": "next step 0: entity 'overview' has no name"
+    },
+    {
+     "seconds": 75.9,
+     "outcome": "rejected:name_placeholder_without_name",
+     "message": "next step 0: entity 'overview' has no name"
+    }
+   ],
+   "payload": null,
+   "peak_swap_mb": 0,
+   "runtime": {
+    "ollama_version": "0.40.16",
+    "model": "qwen3:8b",
+    "family": "qwen3",
+    "parameter_size": "8.2B",
+    "quantization": "Q4_K_M",
+    "format": "gguf",
+    "thinking_values": [
+     false,
+     true
+    ],
+    "base": "http://127.0.0.1:11434",
+    "host": "Linux x86_64, 4 logical CPUs"
+   },
+   "per_call_timeout_s": 420.0,
+   "date": "2026-11-12 11:06 UTC"
+  },
+  {
+   "context": "insufficient_sample",
+   "mode": "deterministic",
+   "attempts": 2,
+   "fallback_kind": "rejected",
+   "seconds_total": 274.9,
+   "calls": [
+    {
+     "seconds": 194.0,
+     "outcome": "rejected:unknown_placeholder",
+     "message": "finding 0: unknown placeholder 'gain' for entity 'topic.T6'"
+    },
+    {
+     "seconds": 80.9,
+     "outcome": "rejected:unknown_placeholder",
+     "message": "finding 1: unknown placeholder 'gain' for entity 'topic.T6'"
+    }
+   ],
+   "payload": null,
+   "peak_swap_mb": 0,
+   "runtime": {
+    "ollama_version": "0.40.16",
+    "model": "qwen3:8b",
+    "family": "qwen3",
+    "parameter_size": "8.2B",
+    "quantization": "Q4_K_M",
+    "format": "gguf",
+    "thinking_values": [
+     false,
+     true
+    ],
+    "base": "http://127.0.0.1:11434",
+    "host": "Linux x86_64, 4 logical CPUs"
+   },
+   "per_call_timeout_s": 420.0,
+   "date": "2026-11-12 11:11 UTC"
+  },
+  {
+   "context": "missing_optional_metrics",
+   "mode": "deterministic",
+   "attempts": 2,
+   "fallback_kind": "rejected",
+   "seconds_total": 204.0,
+   "calls": [
+    {
+     "seconds": 109.2,
+     "outcome": "rejected:name_placeholder_without_name",
+     "message": "next step 1: entity 'overview' has no name"
+    },
+    {
+     "seconds": 94.7,
+     "outcome": "rejected:unknown_placeholder",
+     "message": "finding 2: unknown placeholder 'topic.T6.name' for entity 'overview'"
+    }
+   ],
+   "payload": null,
+   "peak_swap_mb": 0,
+   "runtime": {
+    "ollama_version": "0.40.16",
+    "model": "qwen3:8b",
+    "family": "qwen3",
+    "parameter_size": "8.2B",
+    "quantization": "Q4_K_M",
+    "format": "gguf",
+    "thinking_values": [
+     false,
+     true
+    ],
+    "base": "http://127.0.0.1:11434",
+    "host": "Linux x86_64, 4 logical CPUs"
+   },
+   "per_call_timeout_s": 420.0,
+   "date": "2026-11-12 11:14 UTC"
+  },
+  {
+   "context": "no_textbook_winner_few_classes",
+   "mode": "llm",
+   "attempts": 2,
+   "fallback_kind": null,
+   "seconds_total": 226.8,
+   "calls": [
+    {
+     "seconds": 130.1,
+     "outcome": "rejected:unknown_placeholder",
+     "message": "finding 0: unknown placeholder 'gain' for entity 'topic.T5'"
+    },
+    {
+     "seconds": 96.7,
+     "outcome": "accepted"
+    }
+   ],
+   "payload": {
+    "summary": "Анализ проведен для 156 учеников; освоение 69.5% не достигает порога 75%. Есть тема, требующая внимания.",
+    "findings": [
+     {
+      "title": "Требует внимания: Многочлены",
+      "text": "Тема «Многочлены» требует внимания: освоение 61%. Количество учеников 60 не достигает порога 10.",
+      "kind": "observation",
+      "entity": "topic.T5",
+      "metric_keys": [
+       "topic.T5.mastery",
+       "topic.T5.students",
+       "settings.min_students_topic"
+      ]
+     },
+     {
+      "title": "Тема: Линейные уравнения",
+      "text": "Тема «Линейные уравнения» в освоении 78% соответствует порогу 75%.",
+      "kind": "observation",
+      "entity": "topic.T6",
+      "metric_keys": [
+       "topic.T6.mastery",
+       "settings.target_mastery"
+      ]
+     },
+     {
+      "title": "Учебники: Алгебра — учебник А и Алгебра — учебник Б",
+      "text": "Сравнение учебников «Алгебра — учебник А и Алгебра — учебник Б» не дает достаточных доказательств: количество классов 2 меньше минимального 3.",
+      "kind": "recommendation",
+      "entity": "comparison.0",
+      "metric_keys": [
+       "comparison.0.total_classes",
+       "settings.min_classes_textbook"
+      ]
+     }
+    ],
+    "limitations": [
+     "Данные о динамике отсутствуют, поэтому невозможно оценить изменения по темам."
+    ],
+    "next_steps": [
+     "Провести дополнительные оценки для тем, требующих внимания.",
+     "Увеличить количество классов для сравнения учебников."
+    ]
+   },
+   "peak_swap_mb": 0,
+   "runtime": {
+    "ollama_version": "0.40.16",
+    "model": "qwen3:8b",
+    "family": "qwen3",
+    "parameter_size": "8.2B",
+    "quantization": "Q4_K_M",
+    "format": "gguf",
+    "thinking_values": [
+     false,
+     true
+    ],
+    "base": "http://127.0.0.1:11434",
+    "host": "Linux x86_64, 4 logical CPUs"
+   },
+   "per_call_timeout_s": 420.0,
+   "date": "2026-11-12 11:18 UTC"
+  },
+  {
+   "context": "textbook_exploratory_association",
+   "mode": "deterministic",
+   "attempts": 2,
+   "fallback_kind": "rejected",
+   "seconds_total": 272.7,
+   "calls": [
+    {
+     "seconds": 171.1,
+     "outcome": "rejected:unknown_placeholder",
+     "message": "finding 0: unknown placeholder 'gain' for entity 'topic.T5'"
+    },
+    {
+     "seconds": 101.6,
+     "outcome": "rejected:unknown_placeholder",
+     "message": "finding 0: unknown placeholder 'gain' for entity 'topic.T5'"
+    }
+   ],
+   "payload": null,
+   "peak_swap_mb": 0,
+   "runtime": {
+    "ollama_version": "0.40.16",
+    "model": "qwen3:8b",
+    "family": "qwen3",
+    "parameter_size": "8.2B",
+    "quantization": "Q4_K_M",
+    "format": "gguf",
+    "thinking_values": [
+     false,
+     true
+    ],
+    "base": "http://127.0.0.1:11434",
+    "host": "Linux x86_64, 4 logical CPUs"
+   },
+   "per_call_timeout_s": 420.0,
+   "date": "2026-11-12 11:22 UTC"
+  },
+  {
+   "context": "textbook_estimates_disagree",
+   "mode": "deterministic",
+   "attempts": 2,
+   "fallback_kind": "rejected",
+   "seconds_total": 246.7,
+   "calls": [
+    {
+     "seconds": 126.5,
+     "outcome": "rejected:unknown_placeholder",
+     "message": "finding 0: unknown placeholder 'gain' for entity 'topic.T5'"
+    },
+    {
+     "seconds": 120.2,
+     "outcome": "rejected:unknown_placeholder",
+     "message": "finding 0: unknown placeholder 'gain' for entity 'topic.T5'"
+    }
+   ],
+   "payload": null,
+   "peak_swap_mb": 0,
+   "runtime": {
+    "ollama_version": "0.40.16",
+    "model": "qwen3:8b",
+    "family": "qwen3",
+    "parameter_size": "8.2B",
+    "quantization": "Q4_K_M",
+    "format": "gguf",
+    "thinking_values": [
+     false,
+     true
+    ],
+    "base": "http://127.0.0.1:11434",
+    "host": "Linux x86_64, 4 logical CPUs"
+   },
+   "per_call_timeout_s": 420.0,
+   "date": "2026-11-12 11:27 UTC"
+  },
+  {
+   "context": "hours_proposal",
+   "mode": "deterministic",
+   "attempts": 2,
+   "fallback_kind": "rejected",
+   "seconds_total": 426.9,
+   "calls": [
+    {
+     "seconds": 254.3,
+     "outcome": "rejected:literal_name",
+     "message": "finding 3: entity names must be referenced via {{name}}"
+    },
+    {
+     "seconds": 172.6,
+     "outcome": "rejected:literal_name",
+     "message": "finding 2: entity names must be referenced via {{name}}"
+    }
+   ],
+   "payload": null,
+   "peak_swap_mb": 0,
+   "runtime": {
+    "ollama_version": "0.40.16",
+    "model": "qwen3:8b",
+    "family": "qwen3",
+    "parameter_size": "8.2B",
+    "quantization": "Q4_K_M",
+    "format": "gguf",
+    "thinking_values": [
+     false,
+     true
+    ],
+    "base": "http://127.0.0.1:11434",
+    "host": "Linux x86_64, 4 logical CPUs"
+   },
+   "per_call_timeout_s": 420.0,
+   "date": "2026-11-12 11:34 UTC"
+  },
+  {
+   "context": "hours_accepted_reduced_total",
+   "mode": "deterministic",
+   "attempts": 2,
+   "fallback_kind": "rejected",
+   "seconds_total": 344.0,
+   "calls": [
+    {
+     "seconds": 219.0,
+     "outcome": "rejected:literal_name",
+     "message": "summary: entity names must be referenced via {{name}}"
+    },
+    {
+     "seconds": 125.1,
+     "outcome": "rejected:literal_name",
+     "message": "summary: entity names must be referenced via {{name}}"
+    }
+   ],
+   "payload": null,
+   "peak_swap_mb": 0,
+   "runtime": {
+    "ollama_version": "0.40.16",
+    "model": "qwen3:8b",
+    "family": "qwen3",
+    "parameter_size": "8.2B",
+    "quantization": "Q4_K_M",
+    "format": "gguf",
+    "thinking_values": [
+     false,
+     true
+    ],
+    "base": "http://127.0.0.1:11434",
+    "host": "Linux x86_64, 4 logical CPUs"
+   },
+   "per_call_timeout_s": 420.0,
+   "date": "2026-11-12 11:39 UTC"
+  },
+  {
+   "context": "multi_topic_no_mixing",
+   "mode": "llm",
+   "attempts": 1,
+   "fallback_kind": null,
+   "seconds_total": 188.1,
+   "calls": [
+    {
+     "seconds": 188.1,
+     "outcome": "accepted"
+    }
+   ],
+   "payload": {
+    "summary": "Анализ проведен для 156 учеников; есть трудные темы, по которым изменение не установлено, а также темы с ростом и снижением.",
+    "findings": [
+     {
+      "title": "Трудная тема: Формулы сокращённого умножения",
+      "text": "Тема «Формулы сокращённого умножения» трудная: освоение 40.9%. Изменение 0.6 п.п. не установлено: интервал включает ноль, это не доказывает отсутствие эффекта.",
+      "kind": "observation",
+      "entity": "topic.T1",
+      "metric_keys": [
+       "topic.T1.mastery",
+       "topic.T1.gain"
+      ]
+     },
+     {
+      "title": "Трудная тема: Разложение на множители",
+      "text": "Тема «Разложение на множители» требует внимания: освоение 47.5%. Изменение 27.2 п.п. статистически значимое: рост наблюдается.",
+      "kind": "recommendation",
+      "entity": "topic.T2",
+      "metric_keys": [
+       "topic.T2.mastery",
+       "topic.T2.gain"
+      ]
+     },
+     {
+      "title": "Трудная тема: Проценты",
+      "text": "Тема «Проценты» трудная: освоение 45%. Изменение -6 п.п. статистически значимое: снижение наблюдается.",
+      "kind": "observation",
+      "entity": "topic.T3",
+      "metric_keys": [
+       "topic.T3.mastery",
+       "topic.T3.gain"
+      ]
+     },
+     {
+      "title": "Требует внимания: Многочлены",
+      "text": "Тема «Многочлены» требует внимания: освоение 61%.",
+      "kind": "observation",
+      "entity": "topic.T5",
+      "metric_keys": [
+       "topic.T5.mastery"
+      ]
+     },
+     {
+      "title": "Тема: Линейные уравнения",
+      "text": "Тема «Линейные уравнения» освоена: освоение 78%.",
+      "kind": "observation",
+      "entity": "topic.T6",
+      "metric_keys": [
+       "topic.T6.mastery"
+      ]
+     }
+    ],
+    "limitations": [
+     "Данные наблюдательные, поэтому причинные выводы невозможны."
+    ],
+    "next_steps": [
+     "Разобрать с учителями задания по трудным темам.",
+     "Обратить внимание на темы с ростом и снижением, провести дополнительный анализ."
+    ]
+   },
+   "peak_swap_mb": 0,
+   "runtime": {
+    "ollama_version": "0.40.16",
+    "model": "qwen3:8b",
+    "family": "qwen3",
+    "parameter_size": "8.2B",
+    "quantization": "Q4_K_M",
+    "format": "gguf",
+    "thinking_values": [
+     false,
+     true
+    ],
+    "base": "http://127.0.0.1:11434",
+    "host": "Linux x86_64, 4 logical CPUs"
+   },
+   "per_call_timeout_s": 420.0,
+   "date": "2026-11-12 11:43 UTC"
+  },
+  {
+   "context": "multi_topic_similar_values",
+   "mode": "llm",
+   "attempts": 2,
+   "fallback_kind": null,
+   "seconds_total": 338.6,
+   "calls": [
+    {
+     "seconds": 197.8,
+     "outcome": "rejected:name_placeholder_without_name",
+     "message": "limitation 1: entity 'overview' has no name"
+    },
+    {
+     "seconds": 140.9,
+     "outcome": "accepted"
+    }
+   ],
+   "payload": {
+    "summary": "Проанализировано 156 учеников; есть трудные темы, по которым изменение не установлено.",
+    "findings": [
+     {
+      "title": "Трудная тема: Дроби",
+      "text": "Тема трудная: освоение 40.9%. Изменение 0.6 п.п. не установлено: интервал включает ноль, это не доказывает отсутствие эффекта.",
+      "kind": "observation",
+      "entity": "topic.A1",
+      "metric_keys": [
+       "topic.A1.mastery",
+       "topic.A1.gain"
+      ]
+     },
+     {
+      "title": "Трудная тема: Десятичные дроби",
+      "text": "Тема трудная: освоение 40.9%. Изменение 0.6 п.п. не установлено: интервал включает ноль, это не доказывает отсутствие эффекта.",
+      "kind": "observation",
+      "entity": "topic.A2",
+      "metric_keys": [
+       "topic.A2.mastery",
+       "topic.A2.gain"
+      ]
+     },
+     {
+      "title": "Тема: Натуральные числа",
+      "text": "Тема «Натуральные числа» освоена на уровне 78%, что выше порога 75%.",
+      "kind": "observation",
+      "entity": "topic.A3",
+      "metric_keys": [
+       "topic.A3.mastery",
+       "settings.target_mastery"
+      ]
+     },
+     {
+      "title": "Общая картина",
+      "text": "Общее освоение 53.3%. Нужно обратить внимание на 2 трудных тем.",
+      "kind": "recommendation",
+      "entity": "overview",
+      "metric_keys": [
+       "overview.average_mastery",
+       "overview.difficult_topics"
+      ]
+     },
+     {
+      "title": "Трудная тема: Дроби",
+      "text": "Рекомендуется выделить время на тему «Дроби» с учётом 8 ч часов.",
+      "kind": "recommendation",
+      "entity": "topic.A1",
+      "metric_keys": [
+       "topic.A1.hours"
+      ]
+     }
+    ],
+    "limitations": [
+     "Данные наблюдательные, поэтому причинные выводы невозможны."
+    ],
+    "next_steps": [
+     "Разобрать с учителями задания по трудным темам.",
+     "Обратить внимание на 2 тем.",
+     "Проверить, соответствует ли распределение часов по темам 10."
+    ]
+   },
+   "peak_swap_mb": 0,
+   "runtime": {
+    "ollama_version": "0.40.16",
+    "model": "qwen3:8b",
+    "family": "qwen3",
+    "parameter_size": "8.2B",
+    "quantization": "Q4_K_M",
+    "format": "gguf",
+    "thinking_values": [
+     false,
+     true
+    ],
+    "base": "http://127.0.0.1:11434",
+    "host": "Linux x86_64, 4 logical CPUs"
+   },
+   "per_call_timeout_s": 420.0,
+   "date": "2026-11-12 11:48 UTC"
+  },
+  {
+   "context": "full_demo_like",
+   "mode": "deterministic",
+   "attempts": 2,
+   "fallback_kind": "rejected",
+   "seconds_total": 470.1,
+   "calls": [
+    {
+     "seconds": 280.9,
+     "outcome": "rejected:literal_name",
+     "message": "finding 4: entity names must be referenced via {{name}}"
+    },
+    {
+     "seconds": 189.2,
+     "outcome": "rejected:internal_code",
+     "message": "finding 1: internal code 'increase' must be expressed in Russian words"
+    }
+   ],
+   "payload": null,
+   "peak_swap_mb": 0,
+   "runtime": {
+    "ollama_version": "0.40.16",
+    "model": "qwen3:8b",
+    "family": "qwen3",
+    "parameter_size": "8.2B",
+    "quantization": "Q4_K_M",
+    "format": "gguf",
+    "thinking_values": [
+     false,
+     true
+    ],
+    "base": "http://127.0.0.1:11434",
+    "host": "Linux x86_64, 4 logical CPUs"
+   },
+   "per_call_timeout_s": 420.0,
+   "date": "2026-11-12 11:56 UTC"
+  },
+  {
+   "context": "all_ok",
+   "mode": "llm",
+   "attempts": 1,
+   "fallback_kind": null,
+   "seconds_total": 121.3,
+   "calls": [
+    {
+     "seconds": 121.3,
+     "outcome": "accepted"
+    }
+   ],
+   "payload": {
+    "summary": "Проанализировано 156 учеников и 6 классов. Освоение 78% соответствует целевому порогу 75%.",
+    "findings": [
+     {
+      "title": "Тема: Линейные уравнения",
+      "text": "Тема «Линейные уравнения» освоена на уровне 78%, что соответствует порогу 75%.",
+      "kind": "observation",
+      "entity": "topic.T6",
+      "metric_keys": [
+       "topic.T6.mastery",
+       "settings.target_mastery"
+      ]
+     },
+     {
+      "title": "Тема: Системы линейных уравнений",
+      "text": "Тема «Системы линейных уравнений» освоена на уровне 78%, что соответствует порогу 75%.",
+      "kind": "observation",
+      "entity": "topic.T9",
+      "metric_keys": [
+       "topic.T9.mastery",
+       "settings.target_mastery"
+      ]
+     },
+     {
+      "title": "Тема: Линейные уравнения",
+      "text": "Рекомендуется выделить 8 ч часов на изучение темы «Линейные уравнения», так как она соответствует порогу освоения.",
+      "kind": "recommendation",
+      "entity": "topic.T6",
+      "metric_keys": [
+       "topic.T6.hours"
+      ]
+     },
+     {
+      "title": "Тема: Системы линейных уравнений",
+      "text": "Рекомендуется выделить 8 ч часов на изучение темы «Системы линейных уравнений», так как она соответствует порогу освоения.",
+      "kind": "recommendation",
+      "entity": "topic.T9",
+      "metric_keys": [
+       "topic.T9.hours"
+      ]
+     },
+     {
+      "title": "Общая картина",
+      "text": "Недостаточно данных для оценки влияния учебников на освоение тем.",
+      "kind": "limitation",
+      "entity": "overview",
+      "metric_keys": []
+     }
+    ],
+    "limitations": [
+     "Недостаточно данных для оценки влияния учебников на освоение тем."
+    ],
+    "next_steps": [
+     "Провести дополнительные оценки для уточнения влияния учебников на освоение тем."
+    ]
+   },
+   "peak_swap_mb": 0,
+   "runtime": {
+    "ollama_version": "0.40.16",
+    "model": "qwen3:8b",
+    "family": "qwen3",
+    "parameter_size": "8.2B",
+    "quantization": "Q4_K_M",
+    "format": "gguf",
+    "thinking_values": [
+     false,
+     true
+    ],
+    "base": "http://127.0.0.1:11434",
+    "host": "Linux x86_64, 4 logical CPUs"
+   },
+   "per_call_timeout_s": 420.0,
+   "date": "2026-11-12 11:58 UTC"
+  },
+  {
+   "context": "decline_and_insufficient_textbooks",
+   "mode": "deterministic",
+   "attempts": 2,
+   "fallback_kind": "rejected",
+   "seconds_total": 312.8,
+   "calls": [
+    {
+     "seconds": 167.2,
+     "outcome": "rejected:unknown_entity",
+     "message": "finding 4: unknown entity overview.textbooks"
+    },
+    {
+     "seconds": 145.6,
+     "outcome": "rejected:unknown_entity",
+     "message": "finding 4: unknown entity overview.textbooks"
+    }
+   ],
+   "payload": null,
+   "peak_swap_mb": 0,
+   "runtime": {
+    "ollama_version": "0.40.16",
+    "model": "qwen3:8b",
+    "family": "qwen3",
+    "parameter_size": "8.2B",
+    "quantization": "Q4_K_M",
+    "format": "gguf",
+    "thinking_values": [
+     false,
+     true
+    ],
+    "base": "http://127.0.0.1:11434",
+    "host": "Linux x86_64, 4 logical CPUs"
+   },
+   "per_call_timeout_s": 420.0,
+   "date": "2026-11-12 12:03 UTC"
+  },
+  {
+   "context": "improving_with_plan",
+   "mode": "deterministic",
+   "attempts": 2,
+   "fallback_kind": "rejected",
+   "seconds_total": 251.4,
+   "calls": [
+    {
+     "seconds": 173.3,
+     "outcome": "rejected:internal_code",
+     "message": "finding 0: internal code 'increase' must be expressed in Russian words"
+    },
+    {
+     "seconds": 78.1,
+     "outcome": "rejected:literal_name",
+     "message": "summary: entity names must be referenced via {{name}}"
+    }
+   ],
+   "payload": null,
+   "peak_swap_mb": 0,
+   "runtime": {
+    "ollama_version": "0.40.16",
+    "model": "qwen3:8b",
+    "family": "qwen3",
+    "parameter_size": "8.2B",
+    "quantization": "Q4_K_M",
+    "format": "gguf",
+    "thinking_values": [
+     false,
+     true
+    ],
+    "base": "http://127.0.0.1:11434",
+    "host": "Linux x86_64, 4 logical CPUs"
+   },
+   "per_call_timeout_s": 420.0,
+   "date": "2026-11-12 12:08 UTC"
+  },
+  {
+   "context": "small_sample_and_watch",
+   "mode": "deterministic",
+   "attempts": 2,
+   "fallback_kind": "rejected",
+   "seconds_total": 282.6,
+   "calls": [
+    {
+     "seconds": 167.6,
+     "outcome": "rejected:unknown_placeholder",
+     "message": "summary: unknown placeholder 'gain' for entity 'overview'"
+    },
+    {
+     "seconds": 115.0,
+     "outcome": "rejected:unknown_placeholder",
+     "message": "finding 1: unknown placeholder 'gain' for entity 'topic.T5'"
+    }
+   ],
+   "payload": null,
+   "peak_swap_mb": 0,
+   "runtime": {
+    "ollama_version": "0.40.16",
+    "model": "qwen3:8b",
+    "family": "qwen3",
+    "parameter_size": "8.2B",
+    "quantization": "Q4_K_M",
+    "format": "gguf",
+    "thinking_values": [
+     false,
+     true
+    ],
+    "base": "http://127.0.0.1:11434",
+    "host": "Linux x86_64, 4 logical CPUs"
+   },
+   "per_call_timeout_s": 420.0,
+   "date": "2026-11-12 12:12 UTC"
+  },
+  {
+   "context": "injection_in_label",
+   "mode": "deterministic",
+   "attempts": 2,
+   "fallback_kind": "rejected",
+   "seconds_total": 309.0,
+   "calls": [
+    {
+     "seconds": 187.6,
+     "outcome": "rejected:unknown_entity",
+     "message": "finding 4: unknown entity overview.topics"
+    },
+    {
+     "seconds": 121.4,
+     "outcome": "rejected:unknown_entity",
+     "message": "finding 4: unknown entity overview.topics"
+    }
+   ],
+   "payload": null,
+   "peak_swap_mb": 0,
+   "runtime": {
+    "ollama_version": "0.40.16",
+    "model": "qwen3:8b",
+    "family": "qwen3",
+    "parameter_size": "8.2B",
+    "quantization": "Q4_K_M",
+    "format": "gguf",
+    "thinking_values": [
+     false,
+     true
+    ],
+    "base": "http://127.0.0.1:11434",
+    "host": "Linux x86_64, 4 logical CPUs"
+   },
+   "per_call_timeout_s": 420.0,
+   "date": "2026-11-12 12:17 UTC"
+  },
+  {
+   "context": "two_declines",
+   "mode": "deterministic",
+   "attempts": 2,
+   "fallback_kind": "rejected",
+   "seconds_total": 328.5,
+   "calls": [
+    {
+     "seconds": 211.1,
+     "outcome": "rejected:unknown_placeholder",
+     "message": "finding 2: unknown placeholder 'gain' for entity 'topic.T6'"
+    },
+    {
+     "seconds": 117.5,
+     "outcome": "rejected:unknown_placeholder",
+     "message": "finding 3: unknown placeholder 'gain' for entity 'topic.T6'"
+    }
+   ],
+   "payload": null,
+   "peak_swap_mb": 0,
+   "runtime": {
+    "ollama_version": "0.40.16",
+    "model": "qwen3:8b",
+    "family": "qwen3",
+    "parameter_size": "8.2B",
+    "quantization": "Q4_K_M",
+    "format": "gguf",
+    "thinking_values": [
+     false,
+     true
+    ],
+    "base": "http://127.0.0.1:11434",
+    "host": "Linux x86_64, 4 logical CPUs"
+   },
+   "per_call_timeout_s": 420.0,
+   "date": "2026-11-12 12:23 UTC"
+  },
+  {
+   "context": "missing_metrics_with_textbooks",
+   "mode": "deterministic",
+   "attempts": 2,
+   "fallback_kind": "rejected",
+   "seconds_total": 338.6,
+   "calls": [
+    {
+     "seconds": 184.5,
+     "outcome": "rejected:name_placeholder_without_name",
+     "message": "limitation 1: entity 'overview' has no name"
+    },
+    {
+     "seconds": 154.1,
+     "outcome": "rejected:internal_code",
+     "message": "finding 2: internal code 'insufficient' must be expressed in Russian words"
+    }
+   ],
+   "payload": null,
+   "peak_swap_mb": 0,
+   "runtime": {
+    "ollama_version": "0.40.16",
+    "model": "qwen3:8b",
+    "family": "qwen3",
+    "parameter_size": "8.2B",
+    "quantization": "Q4_K_M",
+    "format": "gguf",
+    "thinking_values": [
+     false,
+     true
+    ],
+    "base": "http://127.0.0.1:11434",
+    "host": "Linux x86_64, 4 logical CPUs"
+   },
+   "per_call_timeout_s": 420.0,
+   "date": "2026-11-12 12:28 UTC"
+  }
+ ],
+ "memory_note": "The in-run sampler matched only processes named 'ollama' and missed the model runner ('llama-server'); its 35 MB value was discarded. Measured with ps right after the run, model loaded, num_ctx 8192: llama-server RSS 8,468 MB (Ollama log: weights 4,730 + 335 MiB, KV cache 1,152 MiB, compute 240 MiB); ollama serve 33 MB; swap 0 (host has no swap). The script is fixed for future runs."
+}
