@@ -18,7 +18,7 @@ def expiry_from_now(ttl_minutes: int) -> datetime:
 
 
 def purge_expired(db: Session) -> int:
-    """Mark open previews past their expiry as expired and drop their staged rows. Returns the count.
+    """Mark open previews past their expiry as expired and drop staged rows and stored files. Returns the count.
 
     Only rows still in status 'preview' are touched, so committed batches and a commit holding the row lock
     (SELECT ... FOR UPDATE in the commit endpoint) are never affected.
@@ -26,7 +26,7 @@ def purge_expired(db: Session) -> int:
     res = db.execute(
         update(m.ImportBatch)
         .where(m.ImportBatch.status == "preview", m.ImportBatch.expires_at < datetime.now(timezone.utc))
-        .values(status="expired", staged_rows=None)
+        .values(status="expired", staged_rows=None, source_file=None, prep_config=None)
     )
     db.commit()
     if res.rowcount:

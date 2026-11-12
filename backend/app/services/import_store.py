@@ -198,6 +198,8 @@ def commit_rows(db: Session, rows: list[dict[str, Any]], batch_id: int) -> int:
             "score": r["score"],
             "max_score": r["max_score"],
             "import_batch_id": batch_id,
+            "source_row": r.get("_row"),
+            "source_column": r.get("_col"),
         }
         for r in rows
         if not r.get("_skip")
@@ -205,3 +207,20 @@ def commit_rows(db: Session, rows: list[dict[str, Any]], batch_id: int) -> int:
     for i in range(0, len(payload), 5000):
         db.execute(insert(m.AssessmentResult), payload[i : i + 5000])
     return len(payload)
+
+
+def commit_dataset(db: Session, batch: m.ImportBatch, payload: dict[str, Any], sheet: str) -> m.Dataset:
+    """Store a general or aggregate dataset staged by a validated preview. Caller commits; no assessment tables."""
+    ds = payload["dataset"]
+    name = ds.get("name") or f"{batch.filename} — {sheet}"
+    obj = m.Dataset(kind=ds["kind"], name=name[:255], source_filename=batch.filename, sheet=sheet[:255],
+                    source_sha256=batch.source_sha256, config_hash=batch.config_hash, import_batch_id=batch.id,
+                    row_count=len(ds["rows"]), columns=ds["columns"],
+                    meta={"metric": ds.get("metric"), "selection": (batch.prep_config or {}).get("selection")})
+    db.add(obj)
+    db.flush()
+    rows = [{"dataset_id": obj.id, "row_index": i, "source_row": d["source_row"], "values": d["values"],
+             "data": d.get("data")} for i, d in enumerate(ds["rows"])]
+    for i in range(0, len(rows), 5000):
+        db.execute(insert(m.DatasetRow), rows[i:i + 5000])
+    return obj

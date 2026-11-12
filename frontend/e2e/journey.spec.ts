@@ -188,7 +188,7 @@ test("invalid upload is rejected with row-level errors and cannot be imported", 
   await expect(summary).toContainText(/Исправьте 2 строки\. Найдено \d+ ошибк[аи]?; данные ещё не импортированы\./);
   await expect(page.getByTestId("issue-groups").locator(":scope > li")).toHaveCount(2);
   await expect(page.getByTestId("issue-groups")).toContainText("Балл больше максимального");
-  await expect(page.getByTestId("issue-groups")).toContainText("Идентификатор ученика");
+  await expect(page.getByTestId("issue-groups")).toContainText("Код ученика");  // display label of student_id
   await expect(page.getByTestId("issue-groups")).not.toContainText("Иван Петров");
   await expect(page.getByTestId("error-codes")).toContainText("SCORE_EXCEEDS_MAX");
   await expect(page.getByTestId("error-codes")).toContainText("POSSIBLE_PERSONAL_DATA");

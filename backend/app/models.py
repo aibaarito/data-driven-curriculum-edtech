@@ -10,6 +10,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    LargeBinary,
     String,
     Text,
     UniqueConstraint,
@@ -153,6 +154,13 @@ class ImportBatch(Base):
     staged_rows: Mapped[list | None] = mapped_column(JSONB(none_as_null=True), nullable=True)
     # Previews expire; expired/failed previews have their staged rows purged (see services/previews.py).
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    # Guided import (worksheet/header/mapping). The uploaded file is kept only while the preview is open and is
+    # dropped on commit, discard and expiry. Validation is bound to config_hash = sha256(file + configuration).
+    source_file: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True, deferred=True)
+    source_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    session_key_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    prep_config: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True), nullable=True)
+    config_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
 
 class AssessmentResult(Base):
@@ -176,6 +184,10 @@ class AssessmentResult(Base):
     import_batch_id: Mapped[int | None] = mapped_column(
         ForeignKey("import_batches.id", ondelete="SET NULL"), nullable=True, index=True
     )
+    # Traceability to the source file of the import batch: original worksheet row and, for wide gradebooks, the
+    # column of the result cell (NULL for results imported before guided import existed).
+    source_row: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    source_column: Mapped[str | None] = mapped_column(String(8), nullable=True)
 
 
 class RecommendationRun(Base):
@@ -275,3 +287,33 @@ class AuditEvent(Base):
     to_status: Mapped[str | None] = mapped_column(String(24), nullable=True)
     detail: Mapped[dict] = mapped_column(JSONB, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class Dataset(Base):
+    """A general or aggregate table imported for exploration. Kept separate from assessment records."""
+
+    __tablename__ = "datasets"
+    __table_args__ = (CheckConstraint("kind in ('general', 'aggregate')", name="ck_dataset_kind"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    kind: Mapped[str] = mapped_column(String(16))
+    name: Mapped[str] = mapped_column(String(255))
+    source_filename: Mapped[str] = mapped_column(String(255))
+    sheet: Mapped[str] = mapped_column(String(255))
+    source_sha256: Mapped[str] = mapped_column(String(64))
+    config_hash: Mapped[str] = mapped_column(String(64))
+    import_batch_id: Mapped[int | None] = mapped_column(ForeignKey("import_batches.id", ondelete="SET NULL"),
+                                                        nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    row_count: Mapped[int] = mapped_column(Integer, default=0)
+    columns: Mapped[list] = mapped_column(JSONB)  # [{id, letter, label, type?, role?}]
+    meta: Mapped[dict] = mapped_column(JSONB, default=dict)  # metric definition, header row, rules
+
+
+class DatasetRow(Base):
+    __tablename__ = "dataset_rows"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    dataset_id: Mapped[int] = mapped_column(ForeignKey("datasets.id", ondelete="CASCADE"), index=True)
+    row_index: Mapped[int] = mapped_column(Integer)
+    source_row: Mapped[int] = mapped_column(Integer)
+    values: Mapped[list] = mapped_column(JSONB)  # original cell texts, aligned with Dataset.columns
+    data: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True), nullable=True)  # aggregate: parsed fields

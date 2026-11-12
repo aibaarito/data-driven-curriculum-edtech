@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import hmac
 import io
 import logging
 import statistics
@@ -7,7 +9,7 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Header, HTTPException, UploadFile
+from fastapi import APIRouter, Body, Header, HTTPException, UploadFile
 from fastapi.responses import FileResponse, Response, StreamingResponse
 from sqlalchemy import delete, func, select, text
 from sqlalchemy.exc import SQLAlchemyError
@@ -15,6 +17,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from app import models as m
 from app.api.deps import DB, FiltersDep
 from app.api.schemas import (
+    CommitBody,
     DecisionBody,
     EvaluateBody,
     FiltersBody,
@@ -28,7 +31,8 @@ from app.services import analytics as an
 from app.services import evidence as evd
 from app.services.ai import generate_insights
 from app.services.context import build_context, filter_labels, topic_inputs_for
-from app.services.import_store import ImportConflict, commit_rows, load_existing_state
+from app.services.import_prep import field_catalogue
+from app.services.import_store import ImportConflict, commit_dataset, commit_rows, load_existing_state
 from app.services.importer import (
     ALL_COLUMNS,
     REQUIRED_COLUMNS,
@@ -193,22 +197,49 @@ def import_preview(db: DB, file: UploadFile) -> dict[str, Any]:
     return {"batch_id": batch.id, "filename": filename, "expires_at": batch.expires_at.isoformat(), **report}
 
 
+def _guided_key_ok(batch: m.ImportBatch, key: str | None) -> bool:
+    return bool(key) and hmac.compare_digest(batch.session_key_hash or "", hashlib.sha256(key.encode()).hexdigest())
+
+
 @router.post("/imports/{batch_id}/commit")
-def import_commit(db: DB, batch_id: int) -> dict[str, Any]:
+def import_commit(db: DB, batch_id: int, body: CommitBody | None = Body(None)) -> dict[str, Any]:
     # Serialize commits so the conflict re-check and the inserts see a consistent database state.
     db.execute(text("SELECT pg_advisory_xact_lock(:k)"), {"k": COMMIT_LOCK_KEY})
     batch = db.get(m.ImportBatch, batch_id, with_for_update=True)
     if batch is None:
         raise HTTPException(404, "Импорт не найден.")
+    body = body or CommitBody()
+    guided = batch.session_key_hash is not None
+    if guided and not _guided_key_ok(batch, body.session_key):
+        raise HTTPException(403, {"code": "PREVIEW_FORBIDDEN",
+                                  "message": "Этот предпросмотр принадлежит другому сеансу загрузки."})
     if batch.status == "expired" or (batch.status == "preview" and batch.expires_at is not None
                                      and batch.expires_at < datetime.now(timezone.utc)):
-        batch.status, batch.staged_rows = "expired", None
+        batch.status, batch.staged_rows, batch.source_file, batch.prep_config = "expired", None, None, None
         db.commit()
         raise HTTPException(410, "Срок действия предпросмотра истёк. Загрузите файл заново.")
     if batch.status != "preview":
         raise HTTPException(409, "Этот импорт уже подтверждён или отменён.")
+    if guided and (batch.config_hash is None or not body.config_hash
+                   or not hmac.compare_digest(batch.config_hash, body.config_hash)):
+        # The configuration shown to the user is not the one that was last validated (or nothing was validated).
+        raise HTTPException(409, {"code": "STALE_PREVIEW",
+                                  "message": "Предпросмотр устарел после изменения настроек. Проверьте данные снова."})
     if not batch.validation.get("ok") or not batch.staged_rows:
         raise HTTPException(422, "Файл содержит ошибки. Исправьте их и загрузите файл заново.")
+    layout = (batch.prep_config or {}).get("layout", "long")
+    if layout in ("aggregate", "general"):
+        # General and aggregate tables are stored as datasets only; assessment tables are not touched.
+        try:
+            ds = commit_dataset(db, batch, batch.staged_rows, (batch.prep_config or {}).get("sheet", ""))
+            batch.status, batch.inserted_rows = "committed", ds.row_count
+            batch.staged_rows, batch.source_file = None, None
+            db.commit()
+        except SQLAlchemyError as exc:
+            db.rollback()
+            raise HTTPException(500, "Не удалось сохранить данные; изменения отменены.") from exc
+        return {"batch_id": batch.id, "status": "committed", "inserted_rows": ds.row_count, "skipped_rows": 0,
+                "dataset_id": ds.id, "kind": layout}
     rows = rows_from_json(batch.staged_rows)
     # Re-check conflicts: data may have changed since preview.
     state = load_existing_state(db, rows)
@@ -222,6 +253,7 @@ def import_commit(db: DB, batch_id: int) -> dict[str, Any]:
         batch.status = "committed"
         batch.inserted_rows = inserted
         batch.staged_rows = None
+        batch.source_file = None  # the uploaded file is not retained after the import
         db.commit()
     except ImportConflict as exc:
         db.rollback()
@@ -230,18 +262,23 @@ def import_commit(db: DB, batch_id: int) -> dict[str, Any]:
         db.rollback()
         raise HTTPException(500, "Не удалось сохранить данные; изменения отменены.") from exc
     return {"batch_id": batch.id, "status": "committed", "inserted_rows": inserted,
-            "skipped_rows": len(rows) - inserted}
+            "skipped_rows": len(rows) - inserted, "kind": "assessment"}
 
 
 @router.post("/imports/{batch_id}/discard")
-def import_discard(db: DB, batch_id: int) -> dict[str, Any]:
+def import_discard(db: DB, batch_id: int, body: CommitBody | None = Body(None)) -> dict[str, Any]:
     batch = db.get(m.ImportBatch, batch_id)
     if batch is None:
         raise HTTPException(404, "Импорт не найден.")
+    if batch.session_key_hash is not None and not _guided_key_ok(batch, (body or CommitBody()).session_key):
+        raise HTTPException(403, {"code": "PREVIEW_FORBIDDEN",
+                                  "message": "Этот предпросмотр принадлежит другому сеансу загрузки."})
     if batch.status != "preview":
         raise HTTPException(409, "Этот импорт уже подтверждён или отменён.")
     batch.status = "discarded"
     batch.staged_rows = None
+    batch.source_file = None
+    batch.prep_config = None
     db.commit()
     return {"batch_id": batch.id, "status": "discarded"}
 
@@ -256,7 +293,8 @@ def import_history(db: DB) -> list[dict[str, Any]]:
 
 @router.get("/imports/schema")
 def import_schema() -> dict[str, Any]:
-    return {"required": REQUIRED_COLUMNS, "optional": [c for c in ALL_COLUMNS if c not in REQUIRED_COLUMNS]}
+    return {"required": REQUIRED_COLUMNS, "optional": [c for c in ALL_COLUMNS if c not in REQUIRED_COLUMNS],
+            "fields": field_catalogue()}
 
 
 @router.get("/imports/template.csv")
@@ -269,6 +307,14 @@ def demo_followup() -> FileResponse:
     """SIMULATED follow-up assessment for demonstrating outcome evaluation (scripts/generate_followup.py)."""
     return FileResponse(DATA_DIR / "synthetic_followup.csv", media_type="text/csv",
                         filename="synthetic_followup_SIMULATED.csv")
+
+
+@router.get("/imports/example-workbook.xlsx")
+def example_workbook() -> FileResponse:
+    """Small SYNTHETIC workbook demonstrating a title row, several sheets and Russian column names."""
+    return FileResponse(DATA_DIR / "example_guided_import.xlsx",
+                        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        filename="example_guided_import_SYNTHETIC.xlsx")
 
 
 @router.get("/imports/demo-dataset.csv")
@@ -584,7 +630,7 @@ def reset_data(db: DB, body: ResetBody, x_admin_token: str | None = Header(defau
         raise HTTPException(403, "Неверный или отсутствующий токен администратора.")
     if body.confirm != "УДАЛИТЬ":
         raise HTTPException(422, "Для удаления всех данных введите слово УДАЛИТЬ.")
-    for model in (m.AuditEvent, m.Intervention, m.CurriculumAllocation, m.RecommendationRun, m.GeneratedReport, m.AssessmentResult,
+    for model in (m.DatasetRow, m.Dataset, m.AuditEvent, m.Intervention, m.CurriculumAllocation, m.RecommendationRun, m.GeneratedReport, m.AssessmentResult,
                   m.ClassTopicHours, m.TopicPrerequisite, m.Student, m.ClassSubject, m.Assessment, m.Topic,
                   m.Textbook, m.SchoolClass, m.Subject, m.School, m.ImportBatch):
         db.execute(delete(model))

@@ -56,7 +56,7 @@ flowchart LR
 
 | Step | You provide or select | The app calculates or shows | Decision it supports | Important limitation |
 |---|---|---|---|---|
-| **Import** (Импорт данных) | A CSV/XLSX file: anonymous student IDs, classes, textbooks, assessments, item scores, hours | Row-level validation report before anything is saved. Ambiguous numbers, name-like IDs and out-of-range scores are rejected, never silently fixed | Whether the file is fit to analyse | Commit is all-or-nothing; previews expire after 60 minutes by default |
+| **Import** (Импорт данных) | A CSV/XLSX file: anonymous student IDs, classes, textbooks, assessments, item scores, hours. Guided steps: data selection (sheet, CSV encoding/delimiter, header incl. two-row headers, range, flagged rows), structure (records, gradebook, aggregate, general table), mapping and explicit score/date/number rules | Validation with sheet row and column for every issue, record counts and which analyses the data supports; gradebooks become traceable records, aggregate and other tables become separate datasets for exploration («Наборы данных»). Ambiguous numbers, name-like IDs and out-of-range scores are rejected, never silently fixed | Whether the file is fit to analyse | Commit is all-or-nothing; previews expire after 60 minutes by default |
 | **Overview / Topic analysis** (Обзор, Анализ тем) | Subject, grade, class, textbook, period | Mastery per topic, distributions, pre→post change with intervals, plain-language status | Which topics to examine first | Low mastery is a signal for review, not proof of poor teaching |
 | **Curriculum map** (Карта программы) | Subject and grade | Prerequisite graph, weak topics that precede other weak topics, a documented priority heuristic, critical chains | Which gaps may be foundational | "Precedes" is structural, not causal. The priority score is a heuristic, not a trained model |
 | **Textbook comparison** (Сравнение учебников) | Subject and grade | Raw, baseline-adjusted and gain differences between textbooks, with sample sizes, confounders and an Evidence Passport | Whether a difference is worth investigating | Observational data. With few classes, most real differences will be reported as insufficient evidence |
@@ -260,7 +260,7 @@ session, real school data, and performance beyond the synthetic dataset.
 | [docs/ANALYTICS.md](docs/ANALYTICS.md) | Formulas, statistical methods, simulation of false-positive rates |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Modules, database schema, API reference |
 | [docs/DECISION_INTELLIGENCE_ARCHITECTURE.md](docs/DECISION_INTELLIGENCE_ARCHITECTURE.md) | Evidence versioning, curriculum graph, decision rules, scenarios, interventions |
-| [docs/IMPORT_FORMAT.md](docs/IMPORT_FORMAT.md) | Import columns, number parsing, integrity rules |
+| [docs/IMPORT_FORMAT.md](docs/IMPORT_FORMAT.md) | Flexible guided import: input variations, layouts (records, gradebook, aggregate, general), mapping, score/date rules, analysis requirements, datasets, limits, data handling |
 | [docs/VERIFICATION.md](docs/VERIFICATION.md) · [docs/FEATURE_COVERAGE.md](docs/FEATURE_COVERAGE.md) | Verification records and feature-to-test matrix |
 | [docs/PRE_DEFENSE_SMOKE.md](docs/PRE_DEFENSE_SMOKE.md) | Pre-defense checklist and optional live Gemini check |
 | [docs/RAILWAY_DEPLOYMENT.md](docs/RAILWAY_DEPLOYMENT.md) | Protected Railway deployment procedure (Russian) |

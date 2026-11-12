@@ -5,16 +5,20 @@ export class ApiError extends Error {
   status: number;
   details: string[];
   code?: string;
-  constructor(message: string, status: number, details: string[] = [], code?: string) {
+  /** Structured problems returned with some errors (e.g. guided-import configuration issues). */
+  issues: { code: string; message: string; field: string | null; column: string | null }[];
+  constructor(message: string, status: number, details: string[] = [], code?: string,
+    issues: ApiError["issues"] = []) {
     super(message);
     this.status = status;
     this.details = details;
     this.code = code;
+    this.issues = issues;
   }
 }
 
 interface ErrorBody {
-  detail?: string | { message?: string; details?: string[]; code?: string } | { msg: string }[];
+  detail?: string | { message?: string; details?: string[]; code?: string; issues?: ApiError["issues"] } | { msg: string }[];
   errors?: { field: string; message: string }[];
 }
 
@@ -25,7 +29,8 @@ export function errorFromBody(status: number, body: unknown): ApiError {
     return new ApiError(b.detail, status, details);
   }
   if (b.detail && !Array.isArray(b.detail) && typeof b.detail === "object") {
-    return new ApiError(b.detail.message ?? "Ошибка запроса.", status, b.detail.details ?? [], b.detail.code);
+    const issues = Array.isArray(b.detail.issues) ? b.detail.issues : [];
+    return new ApiError(b.detail.message ?? "Ошибка запроса.", status, b.detail.details ?? [], b.detail.code, issues);
   }
   if (status === 0) return new ApiError("Нет соединения с сервером.", 0);
   if (status >= 500) return new ApiError("Сервер временно недоступен. Повторите попытку.", status);

@@ -226,6 +226,10 @@ export interface ImportPreview {
   valid_rows: number;
   error_count: number;
   warning_count: number;
+  /** False when validation stopped at the table structure before individual records were checked. */
+  records_validated?: boolean;
+  /** Distinct source rows with at least one error. */
+  rows_with_errors?: number;
   error_counts: Record<string, number>;
   warning_counts: Record<string, number>;
   errors: ValidationIssue[];
@@ -248,7 +252,7 @@ export interface ImportPreview {
 export interface ImportBatch {
   id: number;
   filename: string;
-  status: "preview" | "committed" | "discarded";
+  status: "preview" | "committed" | "discarded" | "expired";
   created_at: string;
   total_rows: number;
   inserted_rows: number;
@@ -403,3 +407,255 @@ export interface SettingsResponse {
   limits: { max_upload_mb: number; max_upload_rows: number; preview_ttl_minutes: number };
   access: { mode: "token" | "local_only"; reset_enabled: boolean };
 }
+
+// ----------------------------------------------------------------------------- guided import
+
+export interface ImportFieldInfo {
+  field: string;
+  label: string;
+  description: string;
+  required: boolean;
+  shared_allowed: boolean;
+  none_allowed: boolean;
+  wide_result?: boolean;
+  wide_per_column?: boolean;
+}
+
+export interface SheetSummary {
+  name: string;
+  hidden: boolean;
+  empty: boolean;
+  non_empty_rows: number;
+  columns: number;
+  problem: string | null;
+  known_headers: number;
+}
+
+export interface ColumnProfile {
+  numeric: number;
+  percent_text: number;
+  date: number;
+  distinct: string[];
+  distinct_count: number;
+  binary?: boolean;
+  integers?: boolean;
+  min: number | null;
+  max: number | null;
+}
+
+export interface SourceColumn {
+  id: string;
+  letter: string;
+  header: string;
+  label: string;
+  group?: string;
+  sub?: string;
+  samples: string[];
+  empty: boolean;
+  profile?: ColumnProfile;
+}
+
+export interface LayoutNotice {
+  code: string;
+  severity: "error" | "warning" | "info";
+  message: string;
+  rows?: number[];
+}
+
+export type Layout = "long" | "wide" | "aggregate" | "general";
+
+export interface RegionSelection {
+  header_row: number;
+  header_rows: 1 | 2;
+  first_col: number;
+  last_col: number | null;
+  last_row: number | null;
+  exclude: string[];
+}
+
+export interface WideSuggestionColumn { column: string; topic_name: string; item_hint: string }
+
+export interface SheetInspection {
+  sheet: string;
+  hidden: boolean;
+  problem: string | null;
+  width: number;
+  header_suggestion: { row: number | null; confidence: "high" | "low" | "none"; reason: string; header_rows?: number };
+  preview: { row: number; cells: string[] }[];
+  header_rows_allowed: number[];
+  header_row: number | null;
+  selection?: RegionSelection | null;
+  all_columns?: { index: number; letter: string }[];
+  columns: SourceColumn[];
+  suggestions: {
+    suggested: Record<string, { column: string; confidence: "exact" | "alias" }>;
+    ambiguous: Record<string, { column: string; reason: string }[]>;
+  };
+  notices: LayoutNotice[];
+  duplicate_headers: { header: string; letters: string[] }[];
+  empty_header_columns?: string[];
+  flags?: { row: number; kind: string; label: string }[];
+  flag_counts?: Record<string, number>;
+  layout_suggestion?: { layout: Layout; confidence: string; reason: string } | null;
+  wide_suggestion?: { identity: Record<string, { column: string }>; result_columns: WideSuggestionColumn[]; total_columns: WideSuggestionColumn[] } | null;
+  aggregate_suggestion?: Record<string, string>;
+  type_suggestion?: Record<string, string>;
+  data_rows?: number;
+  last_data_row?: number | null;
+}
+
+export interface CsvInfo {
+  encoding: string;
+  encoding_confidence: string;
+  delimiter: string;
+  delimiter_label: string;
+  delimiter_confidence: string;
+  delimiter_alternatives: { value: string; label: string }[];
+}
+
+export interface ImportCatalog {
+  layouts: { value: Layout; label: string }[];
+  aggregate_roles: { value: string; label: string }[];
+  types: { value: string; label: string }[];
+  flags: { value: string; label: string }[];
+  date_formats: string[];
+  encodings: string[];
+  delimiters: { value: string; label: string }[];
+}
+
+export interface ImportSource {
+  batch_id: number;
+  session_key: string;
+  filename: string;
+  kind: "csv" | "xlsx";
+  expires_at: string;
+  sheets: SheetSummary[];
+  csv_info?: CsvInfo | null;
+  sheet_suggestion: { name: string | null; reason: string };
+  inspection: SheetInspection | null;
+  auto_ready: boolean;
+  fields: ImportFieldInfo[];
+  catalog?: ImportCatalog;
+  limits: { max_upload_mb: number; max_rows: number; max_columns: number; max_sheets: number; header_scan_rows: number; preview_ttl_minutes: number; max_dataset_rows?: number };
+}
+
+export type FieldChoice =
+  | { source: "column"; column: string }
+  | { source: "value"; value: string }
+  | { source: "none" };
+
+export interface ConfigIssue {
+  code: string;
+  message: string;
+  field: string | null;
+  column: string | null;
+}
+
+export interface Capability {
+  key: string;
+  title: string;
+  available: boolean;
+  partial: boolean;
+  level: string;
+  missing: string[];
+  limitations: string[];
+  link: string | null;
+}
+
+export interface ImportCounts {
+  source_rows: number;
+  excluded_rows: number;
+  excluded_by_kind?: Record<string, number>;
+  excluded_row_numbers?: number[];
+  records: number;
+  valid_records: number;
+  invalid_records: number;
+  cross_record_errors: number;
+  existing_duplicates: number;
+  eligible: number;
+  missing_results?: number;
+  empty_result_cells?: number;
+  result_columns?: number;
+  wide_explanation?: string;
+}
+
+export interface ImportConfigSummary {
+  sheet: string;
+  sheet_hidden: boolean;
+  header_row: number;
+  header_rows?: number;
+  range?: { first_col: string; last_col: string | null; last_row: number | null };
+  excluded_kinds?: string[];
+  layout?: Layout;
+  layout_label?: string;
+  kind?: "assessment" | "dataset";
+  csv?: { encoding?: string; delimiter?: string };
+  mapped: { field: string; label: string; column: string; letter: string; header: string }[];
+  shared: { field: string; label: string; value: string }[];
+  not_in_file: { field: string; label: string }[];
+  result_columns?: ({ letter: string; header: string } & Record<string, string>)[];
+  roles?: { letter: string; header: string; role: string; role_label: string }[];
+  metric?: Record<string, string>;
+  types?: { letter: string; header: string; type: string; type_label: string }[];
+  dataset_name?: string;
+  rules?: string[];
+  ignored_columns: string[];
+}
+
+export interface GuidedValidation extends ImportPreview {
+  config_hash: string;
+  config: ImportConfigSummary;
+  expires_at: string;
+  counts?: ImportCounts;
+  capabilities?: Capability[];
+  capabilities_scope?: "file" | "dataset";
+}
+
+export interface DatasetColumn { id: string; letter: string; label: string; type?: string; role?: string | null }
+
+export interface DatasetMeta {
+  id: number;
+  kind: "general" | "aggregate";
+  name: string;
+  source_filename: string;
+  sheet: string;
+  created_at: string;
+  row_count: number;
+  columns: DatasetColumn[];
+  metric: Record<string, string> | null;
+}
+
+export interface ColumnSummary {
+  id: string;
+  letter: string;
+  label: string;
+  type: string;
+  missing: number;
+  missing_pct: number;
+  distinct: number;
+  mismatched?: number;
+  numeric?: { count: number; mean: number; median: number; min: number; max: number; sd: number | null };
+  histogram?: { from: number; to: number; count: number }[];
+  date_range?: { from: string; to: string };
+  frequencies?: { value: string; count: number }[];
+  other_count?: number;
+  avg_length?: number | null;
+}
+
+export interface AggregateGroup {
+  group: string;
+  rows: number;
+  mean_of_groups_pct: number;
+  min_pct: number;
+  max_pct: number;
+  weighted_pct: number | null;
+  students_total: number | null;
+}
+
+export interface DatasetDetail extends DatasetMeta {
+  profile: { rows: number; columns: number; duplicate_rows: number; column_profiles: ColumnSummary[] };
+  capabilities: Capability[];
+  aggregate?: { by_topic: AggregateGroup[]; by_class: AggregateGroup[]; by_textbook: AggregateGroup[]; records: number; note: string };
+}
+
+export interface DatasetRowsPage { total: number; page: number; page_size: number; rows: { source_row: number; values: string[] }[] }
